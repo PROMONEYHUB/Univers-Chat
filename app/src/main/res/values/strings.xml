@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Univers Chat</string>
+    <string name="auth_hero_desc">Univers Chat social messaging illustration</string>
+    <string name="auth_headline">Conversations that feel alive</string>
+    <string name="auth_subtitle">Direct messages, lively group channels, instant tapbacks, photo sharing, and live polls in real time.</string>
+    <string name="sign_in_with_google">Continue with Google</string>
+    <string name="signing_in">Signing in…</string>
+    <string name="auth_privacy_note">Secured by Google Sign-In &amp; Cloud Firestore</string>
+    <string name="tab_chats">Chats</string>
+    <string name="tab_people">People</string>
+    <string name="tab_profile">Profile</string>
+    <string name="new_chat">New Chat</string>
+    <string name="empty_chats_desc">No conversations yet illustration</string>
+    <string name="empty_chats_title">Start your first conversation</string>
+    <string name="empty_chats_subtitle">Tap New Chat or visit People to message friends and spin up group channels.</string>
+    <string name="sign_out">Sign out</string>
+</resources>

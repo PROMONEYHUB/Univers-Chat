@@ -1,0 +1,266 @@
+{
+  "entities": {
+    "PrivateUser": {
+      "title": "PrivateUser",
+      "description": "Private user account record containing PII and personal preferences, strictly isolated to the owner.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID matching the document ID."
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address from Google Sign-In."
+        },
+        "readReceiptsEnabled": {
+          "type": "boolean",
+          "description": "Whether read receipts are enabled for this user."
+        },
+        "notificationsEnabled": {
+          "type": "boolean",
+          "description": "Whether in-app alert banners are enabled."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp (FieldValue.serverTimestamp()) when account was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp (FieldValue.serverTimestamp()) when account was last updated."
+        }
+      },
+      "required": ["userId", "email", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public social directory profile with no PII, discoverable by signed-in users when isDiscoverable is true.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID matching the document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Public display name shown in chats and people directory."
+        },
+        "handle": {
+          "type": "string",
+          "description": "Social handle (without PII) for quick discovery."
+        },
+        "bio": {
+          "type": "string",
+          "description": "Short personal bio."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Public avatar image URL from Google profile."
+        },
+        "statusVibe": {
+          "type": "string",
+          "description": "Short current status note or vibe."
+        },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Active online presence flag."
+        },
+        "isDiscoverable": {
+          "type": "boolean",
+          "description": "Whether the profile appears in the People discovery directory."
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last activity."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["userId", "displayName", "handle", "isOnline", "isDiscoverable", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Direct message or group chat conversation metadata and last-message summary.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["direct", "group"],
+          "description": "Conversation type."
+        },
+        "title": {
+          "type": "string",
+          "description": "Group channel title (empty for direct messages)."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Optional group topic or subtitle."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID of the user who created the conversation."
+        },
+        "participantIds": {
+          "type": "array",
+          "description": "Bounded list of participant UIDs (max 50)."
+        },
+        "participantNames": {
+          "type": "object",
+          "description": "Map of participant UID to display name."
+        },
+        "participantPhotos": {
+          "type": "object",
+          "description": "Map of participant UID to avatar URL."
+        },
+        "lastMessageText": {
+          "type": "string",
+          "description": "Preview text of the latest message."
+        },
+        "lastMessageSenderId": {
+          "type": "string",
+          "description": "UID of the latest message sender."
+        },
+        "lastMessageSenderName": {
+          "type": "string",
+          "description": "Display name of the latest message sender."
+        },
+        "lastMessageType": {
+          "type": "string",
+          "description": "Type of latest message (text, image, poll)."
+        },
+        "lastMessageAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest message."
+        },
+        "unreadCounts": {
+          "type": "object",
+          "description": "Map of participant UID to unread message count."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when conversation was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when conversation was updated."
+        }
+      },
+      "required": ["type", "title", "createdBy", "participantIds", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Individual chat message inside a conversation with denormalized participantIds for flat rule evaluation.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "description": "Parent conversation ID."
+        },
+        "senderId": {
+          "type": "string",
+          "description": "UID of message author."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Display name of message author."
+        },
+        "senderPhotoUrl": {
+          "type": "string",
+          "description": "Avatar URL of message author."
+        },
+        "participantIds": {
+          "type": "array",
+          "description": "Denormalized participant UID list matching parent conversation."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "image", "poll"],
+          "description": "Message payload type."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message text body or caption."
+        },
+        "imageBase64": {
+          "type": "string",
+          "description": "Optional compressed JPEG base64 thumbnail string."
+        },
+        "replyToMessageId": {
+          "type": "string",
+          "description": "Optional ID of replied message."
+        },
+        "replyToSenderName": {
+          "type": "string",
+          "description": "Optional sender name of replied message."
+        },
+        "replyToPreview": {
+          "type": "string",
+          "description": "Optional text preview of replied message."
+        },
+        "reactions": {
+          "type": "object",
+          "description": "Map of participant UID to selected emoji reaction."
+        },
+        "pollQuestion": {
+          "type": "string",
+          "description": "Optional poll question text."
+        },
+        "pollOptions": {
+          "type": "array",
+          "description": "Optional list of poll option labels (max 6)."
+        },
+        "pollVotes": {
+          "type": "object",
+          "description": "Map of participant UID to chosen option index string."
+        },
+        "isEdited": {
+          "type": "boolean",
+          "description": "Whether the sender edited this message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when message was sent."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when message was updated."
+        }
+      },
+      "required": ["conversationId", "senderId", "senderName", "participantIds", "type", "text", "isEdited", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/PrivateUser" },
+      "description": "Private user account documents containing email and personal preferences, strictly isolated to owner."
+    },
+    "/user_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public social user profiles without PII for chat display and people discovery."
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Direct and group chat rooms accessible strictly to participants."
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages belonging to a conversation, accessible strictly to participants."
+    }
+  }
+}

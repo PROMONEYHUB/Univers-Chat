@@ -1,0 +1,452 @@
+package com.example.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.PersonSearch
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.example.data.model.UiState
+import com.example.data.model.UserProfile
+import com.example.ui.components.IosSearchField
+import com.example.ui.components.UserAvatar
+import com.example.ui.components.formatRelativeTime
+import com.example.ui.theme.IosBlue
+import com.example.ui.theme.OnlinePresenceGreen
+import com.example.ui.theme.PulseBrushes
+
+@Composable
+fun PeopleScreen(
+    currentUserId: String,
+    currentUserProfile: UserProfile?,
+    peopleState: UiState<List<UserProfile>>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onMessagePerson: (UserProfile) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
+    val memberCount = remember(allPeople, currentUserId) {
+        allPeople.count { it.userId != currentUserId }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Contacts",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (memberCount > 0) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = "$memberCount member${if (memberCount == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Discover Univers Chat members and start an instant conversation",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            IosSearchField(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                placeholder = "Search name, @handle, or vibe…",
+                inputTestTag = "people_search_input"
+            )
+        }
+
+        when (peopleState) {
+            is UiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+
+            is UiState.Error -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = peopleState.message,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            is UiState.Success -> {
+                val others = remember(peopleState.data, searchQuery, currentUserId) {
+                    peopleState.data
+                        .filter { it.userId != currentUserId }
+                        .filter {
+                            searchQuery.isBlank() ||
+                                it.displayName.contains(searchQuery, ignoreCase = true) ||
+                                it.handle.contains(searchQuery, ignoreCase = true) ||
+                                it.statusVibe.contains(searchQuery, ignoreCase = true)
+                        }
+                        .sortedByDescending { it.isOnline }
+                }
+
+                LazyColumn(
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (currentUserProfile != null && searchQuery.isBlank()) {
+                        item(key = "self_notes_card") {
+                            SavedNotesBannerCard(
+                                profile = currentUserProfile,
+                                onClick = { onMessagePerson(currentUserProfile) }
+                            )
+                        }
+                    }
+
+                    if (others.isEmpty()) {
+                        item(key = "empty_people") {
+                            Surface(
+                                shape = RoundedCornerShape(22.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        width = 0.6.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(22.dp)
+                                    )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(26.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(60.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PersonSearch,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = if (searchQuery.isNotBlank()) "No people match \"$searchQuery\"" else "No other members online yet",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "When other people sign into Univers Chat with Google, their discoverable profiles appear here automatically.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        item(key = "grouped_contacts_card") {
+                            Surface(
+                                shape = RoundedCornerShape(22.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .border(
+                                        width = 0.6.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(22.dp)
+                                    )
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    others.forEachIndexed { index, person ->
+                                        GroupedPersonRow(
+                                            profile = person,
+                                            showBottomDivider = index < others.lastIndex,
+                                            onMessageClick = { onMessagePerson(person) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedNotesBannerCard(
+    profile: UserProfile,
+    onClick: () -> Unit
+) {
+    val isDark = isSystemInDarkTheme()
+    val bgBrush = if (isDark) PulseBrushes.SavedNotesGradientDark else PulseBrushes.SavedNotesGradientLight
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(bgBrush)
+            .border(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                shape = RoundedCornerShape(22.dp)
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(IosBlue),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Bookmark,
+                    contentDescription = "Saved Notes",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = "Personal Space",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Saved Notes (${profile.displayName.substringBefore(" ")})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Message yourself for quick notes, photos & links",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            FilledTonalButton(
+                onClick = onClick,
+                shape = CircleShape,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier.testTag("message_person_${profile.userId}")
+            ) {
+                Text("Open", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupedPersonRow(
+    profile: UserProfile,
+    showBottomDivider: Boolean,
+    onMessageClick: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            UserAvatar(
+                name = profile.displayName,
+                photoUrl = profile.photoUrl,
+                size = 52.dp,
+                showPresence = true,
+                isOnline = profile.isOnline,
+                showStoryRing = profile.isOnline
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = profile.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "@${profile.handle}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = profile.bio.ifBlank { "On Univers Chat" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (profile.statusVibe.isNotBlank()) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = profile.statusVibe,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.5.dp)
+                            )
+                        }
+                    }
+                    if (profile.isOnline) {
+                        Text(
+                            text = "Online now",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = OnlinePresenceGreen
+                        )
+                    } else if (profile.lastSeenAt != null) {
+                        Text(
+                            text = "Seen ${formatRelativeTime(profile.lastSeenAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            FilledTonalButton(
+                onClick = onMessageClick,
+                shape = CircleShape,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier.testTag("message_person_${profile.userId}")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Chat", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+
+        if (showBottomDivider) {
+            HorizontalDivider(
+                thickness = 0.6.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(start = 80.dp, end = 14.dp)
+            )
+        }
+    }
+}
