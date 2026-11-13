@@ -57,7 +57,7 @@ jobs:
             if [ -f debug.keystore.base64 ]; then
               base64 -d debug.keystore.base64 > debug.keystore
             elif [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-              printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+              printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > debug.keystore
             else
               echo "Generating debug.keystore for CI build..."
               keytool -genkeypair -noprompt \
