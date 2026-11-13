@@ -23,7 +23,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Accept Android SDK licenses & install API 36.1
+      - name: Accept Android SDK licenses & install SDK 36.1
         run: |
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | sort -V | tail -n 1)"
@@ -31,9 +31,11 @@ jobs:
             SDKMANAGER="$(command -v sdkmanager)"
           fi
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "Using sdkmanager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platform-tools" "platforms;android-36.1"
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -45,9 +47,22 @@ jobs:
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
+          ls -lh debug.keystore
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          if ! gradle assembleDebug \
+            --no-daemon \
+            --max-workers=2 \
+            --no-configuration-cache \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+            --stacktrace \
+            --console=plain 2>&1 | tee gradle-debug.log; then
+            echo "=== FAILURE SUMMARY ==="
+            grep -n -C 5 "FAILURE:\|What went wrong:\|Caused by:" gradle-debug.log | head -n 80 || tail -n 80 gradle-debug.log
+            exit 1
+          fi
 
       - name: Stage APK artifacts
         run: |
@@ -63,7 +78,13 @@ jobs:
         run: |
           if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
-            gradle assembleRelease --no-daemon --stacktrace
+            gradle assembleRelease \
+              --no-daemon \
+              --max-workers=2 \
+              --no-configuration-cache \
+              -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+              --stacktrace \
+              --console=plain
             cp app/build/outputs/apk/release/app-release.apk artifacts/UniversChat-release.apk
           else
             echo "Release signing secrets not configured; skipping release APK."
