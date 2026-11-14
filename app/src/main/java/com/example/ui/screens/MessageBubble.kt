@@ -50,9 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +59,7 @@ import com.example.data.model.Message
 import com.example.ui.components.ImageUtils
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatMessageClock
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosDarkBubbleIncoming
 import com.example.ui.theme.IosLightBubbleIncoming
 import com.example.ui.theme.PulseBrushes
@@ -83,7 +82,7 @@ fun MessageBubble(
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberIosHaptics()
     val bubbleShape = if (isOwnMessage) {
         RoundedCornerShape(
             topStart = 20.dp,
@@ -162,9 +161,12 @@ fun MessageBubble(
                     .clip(bubbleShape)
                     .background(bubbleBrush)
                     .combinedClickable(
-                        onClick = onLongPressOrTapActions,
+                        onClick = {
+                            haptics.lightTap()
+                            onLongPressOrTapActions()
+                        },
                         onLongClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.impactMedium()
                             onLongPressOrTapActions()
                         }
                     )
@@ -319,7 +321,10 @@ fun MessageBubble(
                                     color = if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                                     shape = CircleShape
                                 )
-                                .clickable { onToggleReaction(emoji) }
+                                .clickable {
+                                    haptics.selectionTick()
+                                    onToggleReaction(emoji)
+                                }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -351,6 +356,7 @@ private fun PollBubbleContent(
     subtleColor: Color,
     onVotePoll: (Int) -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     val totalVotes = message.pollVotes.size
     val myVote = message.pollVotes[currentUserId]?.toIntOrNull()
 
@@ -389,7 +395,10 @@ private fun PollBubbleContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .clickable { onVotePoll(index) }
+                    .clickable {
+                        haptics.selectionTick()
+                        onVotePoll(index)
+                    }
             ) {
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                     Row(
@@ -457,6 +466,7 @@ fun MessageActionsDialog(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
@@ -488,6 +498,7 @@ fun MessageActionsDialog(
                                 .size(44.dp)
                                 .clip(CircleShape)
                                 .clickable {
+                                    haptics.selectionTick()
                                     onReact(emoji)
                                     onDismiss()
                                 }
@@ -507,6 +518,7 @@ fun MessageActionsDialog(
                     icon = Icons.AutoMirrored.Rounded.Reply,
                     label = "Reply",
                     onClick = {
+                        haptics.lightTap()
                         onReply()
                         onDismiss()
                     }
@@ -517,6 +529,7 @@ fun MessageActionsDialog(
                         icon = Icons.Rounded.Edit,
                         label = "Edit message",
                         onClick = {
+                            haptics.lightTap()
                             onEdit()
                             onDismiss()
                         }
@@ -529,6 +542,7 @@ fun MessageActionsDialog(
                         label = "Delete message",
                         tint = MaterialTheme.colorScheme.error,
                         onClick = {
+                            haptics.impactMedium()
                             onDelete()
                             onDismiss()
                         }

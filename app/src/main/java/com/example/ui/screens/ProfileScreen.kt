@@ -68,6 +68,7 @@ import com.example.R
 import com.example.data.model.PrivateUser
 import com.example.data.model.UserProfile
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosBlue
 import com.example.ui.theme.IosGreen
 import com.example.ui.theme.IosIndigo
@@ -124,6 +125,7 @@ fun ProfileScreen(
     }
 
     val context = LocalContext.current
+    val haptics = rememberIosHaptics()
     val clipboardManager = LocalClipboardManager.current
     val readReceipts = privateUser?.readReceiptsEnabled ?: true
     val notifications = privateUser?.notificationsEnabled ?: true
@@ -249,6 +251,7 @@ fun ProfileScreen(
                             .offset(y = (-16).dp)
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
+                                haptics.lightTap()
                                 val h = "@${handle.ifBlank { "member" }}"
                                 clipboardManager.setText(AnnotatedString(h))
                                 Toast.makeText(context, "Copied $h", Toast.LENGTH_SHORT).show()
@@ -296,7 +299,10 @@ fun ProfileScreen(
                             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .clickable { statusVibe = preset.label }
+                                .clickable {
+                                    haptics.selectionTick()
+                                    statusVibe = preset.label
+                                }
                         ) {
                             Text(
                                 text = "${preset.emoji} ${preset.label}",
@@ -391,6 +397,7 @@ fun ProfileScreen(
 
                 Button(
                     onClick = {
+                        haptics.success()
                         onSaveProfile(displayName, handle, bio, statusVibe, isOnline, isDiscoverable)
                     },
                     enabled = !isBusy && displayName.trim().isNotEmpty() && handle.trim().length >= 2,
@@ -473,7 +480,10 @@ fun ProfileScreen(
         }
 
         OutlinedButton(
-            onClick = onSignOut,
+            onClick = {
+                haptics.impactMedium()
+                onSignOut()
+            },
             shape = CircleShape,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             modifier = Modifier
@@ -537,6 +547,7 @@ private fun IosToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -567,7 +578,10 @@ private fun IosToggleRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = {
+                haptics.selectionTick()
+                onCheckedChange(it)
+            },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = IosGreen,

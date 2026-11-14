@@ -64,6 +64,7 @@ import com.example.ui.components.IosSearchField
 import com.example.ui.components.IosSegmentedControl
 import com.example.ui.components.SegmentedTabItem
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.PulseBrushes
 
 private val GroupTopicPresets = listOf("Friends", "Study", "Weekend", "Gaming", "Work", "Travel")
@@ -77,6 +78,7 @@ fun NewConversationDialog(
     onStartDirect: (UserProfile) -> Unit,
     onCreateGroup: (title: String, topic: String, members: List<UserProfile>) -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     var isGroupMode by remember { mutableStateOf(initialGroupMode) }
     var groupTitle by remember { mutableStateOf("") }
     var groupTopic by remember { mutableStateOf("") }
@@ -151,7 +153,12 @@ fun NewConversationDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        TextButton(onClick = onDismiss) {
+                        TextButton(
+                            onClick = {
+                                haptics.lightTap()
+                                onDismiss()
+                            }
+                        ) {
                             Text(
                                 text = "Cancel",
                                 color = MaterialTheme.colorScheme.primary,
@@ -168,6 +175,7 @@ fun NewConversationDialog(
                         if (isGroupMode) {
                             Button(
                                 onClick = {
+                                    haptics.success()
                                     onCreateGroup(groupTitle, groupTopic, selectedPeople)
                                 },
                                 enabled = groupTitle.trim().isNotEmpty(),
@@ -292,7 +300,10 @@ fun NewConversationDialog(
                                                 color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                                 modifier = Modifier
                                                     .clip(CircleShape)
-                                                    .clickable { groupTopic = if (chosen) "" else preset }
+                                                    .clickable {
+                                                        haptics.selectionTick()
+                                                        groupTopic = if (chosen) "" else preset
+                                                    }
                                             ) {
                                                 Text(
                                                     text = preset,
@@ -421,9 +432,11 @@ fun NewConversationDialog(
                                                     .fillMaxWidth()
                                                     .clickable {
                                                         if (isGroupMode) {
+                                                            haptics.selectionTick()
                                                             if (isSelected) selectedIds.remove(person.userId)
                                                             else selectedIds.add(person.userId)
                                                         } else {
+                                                            haptics.lightTap()
                                                             onStartDirect(person)
                                                         }
                                                     }

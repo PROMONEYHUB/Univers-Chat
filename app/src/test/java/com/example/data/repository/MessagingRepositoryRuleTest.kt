@@ -191,6 +191,68 @@ class MessagingRepositoryRuleTest : FirestoreEmulatorTestBase() {
     }
 
     @Test
+    fun removeOrDeleteConversation_deletesDirectForParticipant_andLeavesNonOwnedGroup() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val aliceRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val aliceProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeUserProfile(aliceUid).first { it != null }!!
+        }
+
+        val bobUid = signInTestUser(BOB_EMAIL)
+        val bobRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val bobProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeUserProfile(bobUid).first { it != null }!!
+        }
+
+        // Alice creates a DM and a group with Bob
+        signInTestUser(ALICE_EMAIL)
+        val dmId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.getOrCreateDirectConversation(aliceProfile, bobProfile).getOrThrow()
+        }
+        val groupId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.createGroupConversation(
+                title = "Swipe Group ${UUID.randomUUID().toString().take(6)}",
+                topic = "Testing",
+                currentProfile = aliceProfile,
+                selectedMembers = listOf(bobProfile)
+            ).getOrThrow()
+        }
+
+        // Bob swipes to remove both: deletes the DM, leaves the group owned by Alice
+        signInTestUser(BOB_EMAIL)
+        val bobDm = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeConversation(dmId).first { it != null }!!
+        }
+        val bobGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeConversation(groupId).first { it != null }!!
+        }
+
+        val dmOutcome = withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobRepo.removeOrDeleteConversation(bobDm).getOrThrow()
+        }
+        assertTrue("Expected DM to be deleted", dmOutcome)
+
+        val groupOutcome = withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobRepo.removeOrDeleteConversation(bobGroup).getOrThrow()
+        }
+        assertFalse("Expected Bob to leave non-owned group rather than delete it", groupOutcome)
+
+        // Alice still has the group conversation
+        signInTestUser(ALICE_EMAIL)
+        val aliceGroup = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(groupId).first { it != null && bobUid !in it.participantIds }
+        }
+        assertNotNull(aliceGroup)
+        assertFalse(bobUid in aliceGroup!!.participantIds)
+    }
+
+    @Test
     fun observeConversations_unauthenticatedUser_throwsIllegalStateOrPermissionDenied() = runBlocking {
         auth.signOut()
         val repo = MessagingRepository(firestore, auth)

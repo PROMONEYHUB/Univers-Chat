@@ -4,8 +4,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,13 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -44,7 +47,7 @@ data class SegmentedTabItem<T>(
 )
 
 /**
- * Native iOS UISegmentedControl-style sliding pill selector with spring motion.
+ * Native iOS UISegmentedControl-style sliding glass pill selector with spring motion.
  */
 @Composable
 fun <T> IosSegmentedControl(
@@ -54,15 +57,30 @@ fun <T> IosSegmentedControl(
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
+    val haptics = rememberIosHaptics()
+    val isDark = isSystemInDarkTheme()
     val selectedIndex = items.indexOfFirst { it.value == selectedValue }.coerceAtLeast(0)
+    val rimBrush = rememberGlassRimBrush(highlighted = false)
+    val trackAlpha = if (isDark) 0.09f else 0.36f
+    val thumbAlpha = if (isDark) 0.20f else 0.74f
 
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
+            .height(42.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Transparent)
+            .border(width = 0.9.dp, brush = rimBrush, shape = RoundedCornerShape(14.dp))
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .blur(
+                    radius = 16.dp,
+                    edgeTreatment = BlurredEdgeTreatment.Rectangle
+                )
+                .background(Color.White.copy(alpha = trackAlpha))
+        )
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -78,16 +96,20 @@ fun <T> IosSegmentedControl(
                 label = "ios_segment_thumb"
             )
 
-            // Animated sliding pill thumb
-            Surface(
-                shape = RoundedCornerShape(9.5.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 1.5.dp,
+            // Animated translucent frosted sliding pill thumb
+            Box(
                 modifier = Modifier
                     .offset(x = thumbOffset)
                     .width(segmentWidth)
                     .fillMaxHeight()
-            ) {}
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(Color.White.copy(alpha = thumbAlpha))
+                    .border(
+                        width = 0.75.dp,
+                        color = Color.White.copy(alpha = if (isDark) 0.28f else 0.9f),
+                        shape = RoundedCornerShape(11.dp)
+                    )
+            )
 
             Row(modifier = Modifier.fillMaxSize()) {
                 items.forEach { item ->
@@ -100,7 +122,12 @@ fun <T> IosSegmentedControl(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { onSelect(item.value) }
+                            ) {
+                                if (!isSelected) {
+                                    haptics.selectionTick()
+                                    onSelect(item.value)
+                                }
+                            }
                             .then(if (item.testTag != null) Modifier.testTag(item.testTag) else Modifier),
                         contentAlignment = Alignment.Center
                     ) {

@@ -226,6 +226,23 @@ class MainMessagingViewModel(
         }
     }
 
+    fun deleteOrLeaveConversation(
+        conversation: Conversation,
+        onResult: (success: Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            repository.removeOrDeleteConversation(conversation)
+                .onSuccess { wasDeleted ->
+                    _actionMessage.value = if (wasDeleted) "Conversation deleted" else "Left channel"
+                    onResult(true)
+                }
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to remove conversation"
+                    onResult(false)
+                }
+        }
+    }
+
     fun setOnlineStatus(isOnline: Boolean) {
         if (Firebase.auth.currentUser == null) return
         viewModelScope.launch {

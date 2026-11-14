@@ -63,6 +63,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.Conversation
 import com.example.data.model.UserProfile
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.rememberIosHaptics
 
 @Composable
 fun PhotoLightboxDialog(
@@ -144,6 +145,7 @@ fun CreatePollDialog(
     onDismiss: () -> Unit,
     onCreatePoll: (question: String, options: List<String>) -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     var question by remember { mutableStateOf("") }
     val options = remember { mutableStateListOf("", "") }
 
@@ -225,7 +227,10 @@ fun CreatePollDialog(
                 }
 
                 if (options.size < 6) {
-                    TextButton(onClick = { options.add("") }) {
+                    TextButton(onClick = {
+                        haptics.lightTap()
+                        options.add("")
+                    }) {
                         Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Add Option")
@@ -238,12 +243,18 @@ fun CreatePollDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    TextButton(onClick = {
+                        haptics.lightTap()
+                        onDismiss()
+                    }) {
                         Text("Cancel")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { onCreatePoll(question.trim(), validOptions) },
+                        onClick = {
+                            haptics.success()
+                            onCreatePoll(question.trim(), validOptions)
+                        },
                         enabled = canSubmit,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.testTag("send_poll_button")
@@ -267,6 +278,7 @@ fun GroupInfoDialog(
     onLeaveGroup: () -> Unit,
     onDeleteChannel: (() -> Unit)? = null
 ) {
+    val haptics = rememberIosHaptics()
     var title by remember(conversation.id) { mutableStateOf(conversation.title) }
     var topic by remember(conversation.id) { mutableStateOf(conversation.topic) }
     var showAddMembers by remember { mutableStateOf(false) }
@@ -345,7 +357,10 @@ fun GroupInfoDialog(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Button(
-                        onClick = { onUpdateGroupInfo(title, topic) },
+                        onClick = {
+                            haptics.success()
+                            onUpdateGroupInfo(title, topic)
+                        },
                         enabled = title.trim().isNotEmpty(),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -398,7 +413,10 @@ fun GroupInfoDialog(
                     if (conversation.participantIds.size > 1) {
                         Spacer(modifier = Modifier.height(14.dp))
                         OutlinedButton(
-                            onClick = onLeaveGroup,
+                            onClick = {
+                                haptics.impactMedium()
+                                onLeaveGroup()
+                            },
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
@@ -413,7 +431,10 @@ fun GroupInfoDialog(
                         Spacer(modifier = Modifier.height(10.dp))
                         if (!confirmDeleteChannel) {
                             OutlinedButton(
-                                onClick = { confirmDeleteChannel = true },
+                                onClick = {
+                                    haptics.lightTap()
+                                    confirmDeleteChannel = true
+                                },
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                 modifier = Modifier
@@ -430,13 +451,19 @@ fun GroupInfoDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 TextButton(
-                                    onClick = { confirmDeleteChannel = false },
+                                    onClick = {
+                                        haptics.lightTap()
+                                        confirmDeleteChannel = false
+                                    },
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text("Keep")
                                 }
                                 OutlinedButton(
-                                    onClick = onDeleteChannel,
+                                    onClick = {
+                                        haptics.impactMedium()
+                                        onDeleteChannel()
+                                    },
                                     shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                     modifier = Modifier
@@ -457,6 +484,7 @@ fun GroupInfoDialog(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
+                                        haptics.selectionTick()
                                         if (selected) selectedToAdd.remove(person.userId)
                                         else selectedToAdd.add(person.userId)
                                     }
@@ -482,12 +510,16 @@ fun GroupInfoDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { showAddMembers = false }) {
+                        TextButton(onClick = {
+                            haptics.lightTap()
+                            showAddMembers = false
+                        }) {
                             Text("Back")
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
+                                haptics.success()
                                 val chosen = nonMembers.filter { it.userId in selectedToAdd }
                                 onAddMembers(chosen)
                                 selectedToAdd.clear()

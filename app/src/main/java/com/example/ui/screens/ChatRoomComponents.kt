@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.IosSearchField
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosBlue
 import com.example.ui.theme.IosIndigo
 
@@ -108,6 +109,7 @@ fun IosQuickInsertTray(
     onInsertQuickReply: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = rememberIosHaptics()
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + expandVertically(),
@@ -131,7 +133,10 @@ fun IosQuickInsertTray(
                             color = IosBlue.copy(alpha = 0.14f),
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .clickable(onClick = onPickPhoto)
+                                .clickable {
+                                    haptics.lightTap()
+                                    onPickPhoto()
+                                }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -159,7 +164,10 @@ fun IosQuickInsertTray(
                             color = IosIndigo.copy(alpha = 0.14f),
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .clickable(onClick = onCreatePoll)
+                                .clickable {
+                                    haptics.lightTap()
+                                    onCreatePoll()
+                                }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -187,7 +195,10 @@ fun IosQuickInsertTray(
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .clickable { onInsertQuickReply(snippet) }
+                                .clickable {
+                                    haptics.selectionTick()
+                                    onInsertQuickReply(snippet)
+                                }
                         ) {
                             Text(
                                 text = snippet,
@@ -217,6 +228,7 @@ fun IosMessageComposerBar(
     onSend: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = rememberIosHaptics()
     val canSend = canInteract && draftText.trim().isNotEmpty() && !isSending
     val sendScale by animateFloatAsState(
         targetValue = if (canSend) 1f else 0.88f,
@@ -243,7 +255,10 @@ fun IosMessageComposerBar(
             ) {
                 // iOS '+' Expandable Options Button
                 IconButton(
-                    onClick = onToggleTray,
+                    onClick = {
+                        haptics.lightTap()
+                        onToggleTray()
+                    },
                     enabled = canInteract && !isSending,
                     modifier = Modifier
                         .size(48.dp)
@@ -272,7 +287,10 @@ fun IosMessageComposerBar(
 
                 // Direct 1-tap Photo & Poll pills (compact & accessible)
                 IconButton(
-                    onClick = onPickPhoto,
+                    onClick = {
+                        haptics.lightTap()
+                        onPickPhoto()
+                    },
                     enabled = canInteract && !isSending,
                     modifier = Modifier
                         .size(48.dp)
@@ -295,7 +313,10 @@ fun IosMessageComposerBar(
                 }
 
                 IconButton(
-                    onClick = onOpenPoll,
+                    onClick = {
+                        haptics.lightTap()
+                        onOpenPoll()
+                    },
                     enabled = canInteract && !isSending,
                     modifier = Modifier
                         .size(48.dp)
@@ -398,6 +419,7 @@ fun JumpToLatestButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = rememberIosHaptics()
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -405,7 +427,10 @@ fun JumpToLatestButton(
         modifier = modifier
     ) {
         Surface(
-            onClick = onClick,
+            onClick = {
+                haptics.lightTap()
+                onClick()
+            },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             shadowElevation = 4.dp,

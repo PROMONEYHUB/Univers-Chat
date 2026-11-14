@@ -17,7 +17,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -63,7 +63,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,7 +72,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -97,7 +95,10 @@ import com.example.notifications.RealtimeMessagingService
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.signOut
+import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.IosInAppNotificationBanner
+import com.example.ui.components.LiquidGlassBackdrop
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.screens.ChatRoomScreen
 import com.example.ui.screens.ChatsScreen
 import com.example.ui.screens.PeopleScreen
@@ -169,8 +170,6 @@ fun PulseChatApp() {
 @Composable
 private fun AuthenticatedShell(currentUserId: String) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
 
     val mainViewModel: MainMessagingViewModel = viewModel(
         key = currentUserId,
@@ -346,6 +345,12 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 onCreateGroupChat = { title, topic, members ->
                                     mainViewModel.createGroupChat(title, topic, members) { expandedSelectedChatId = it }
                                 },
+                                onDeleteConversation = { conversation, onResult ->
+                                    if (expandedSelectedChatId == conversation.id) {
+                                        expandedSelectedChatId = null
+                                    }
+                                    mainViewModel.deleteOrLeaveConversation(conversation, onResult)
+                                },
                                 onProfileClick = { activeTab = Routes.PROFILE }
                             )
                         }
@@ -402,7 +407,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 MessageNotificationCoordinator.stopObserving()
                                 RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                 mainViewModel.setOnlineStatus(false)
-                                signOut(credentialManager, coroutineScope)
+                                signOut()
                             },
                             hasPhoneNotificationPermission = hasNotificationPermission,
                             onRequestNotificationPermission = {
@@ -492,6 +497,9 @@ private fun AuthenticatedShell(currentUserId: String) {
                                         navController.navigate(Routes.chatRoom(convId))
                                     }
                                 },
+                                onDeleteConversation = { conversation, onResult ->
+                                    mainViewModel.deleteOrLeaveConversation(conversation, onResult)
+                                },
                                 onProfileClick = { navigateTopLevel(Routes.PROFILE) }
                             )
                         }
@@ -522,7 +530,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     MessageNotificationCoordinator.stopObserving()
                                     RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                     mainViewModel.setOnlineStatus(false)
-                                    signOut(credentialManager, coroutineScope)
+                                    signOut()
                                 },
                                 hasPhoneNotificationPermission = hasNotificationPermission,
                                 onRequestNotificationPermission = {
@@ -582,38 +590,48 @@ private fun AuthenticatedShell(currentUserId: String) {
 
 @Composable
 private fun EmptyExpandedChatPane() {
-    Surface(
-        color = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(68.dp)
+    Box(modifier = Modifier.fillMaxSize()) {
+        LiquidGlassBackdrop()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            GlassmorphismCard(
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Forum,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp)
-                        )
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(68.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Forum,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Select a conversation",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Pick a thread from the left to jump right in",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = "Select a conversation",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Pick a thread from the left to jump right in",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -625,25 +643,22 @@ private fun PulseBottomBar(
     totalUnread: Long,
     onSelectRoute: (String) -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 22.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
+        GlassmorphismCard(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            shadowElevation = 8.dp,
+            highlighted = false,
+            tintAlpha = if (isDark) 0.14f else 0.54f,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = CircleShape
-                )
         ) {
             Row(
                 modifier = Modifier
@@ -696,8 +711,14 @@ private fun IosDockItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = rememberIosHaptics()
+    val isDark = isSystemInDarkTheme()
     val pillColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f) else Color.Transparent,
+        targetValue = if (selected) {
+            Color.White.copy(alpha = if (isDark) 0.16f else 0.72f)
+        } else {
+            Color.Transparent
+        },
         label = "dock_pill"
     )
     val tintColor by animateColorAsState(
@@ -710,11 +731,21 @@ private fun IosDockItem(
             .fillMaxHeight()
             .clip(CircleShape)
             .background(pillColor)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
+            .then(
+                if (selected) {
+                    Modifier.border(
+                        width = 0.8.dp,
+                        color = Color.White.copy(alpha = if (isDark) 0.28f else 0.90f),
+                        shape = CircleShape
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .clickable {
+                if (!selected) haptics.selectionTick()
+                onClick()
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -753,6 +784,7 @@ private fun PulseNavigationRail(
     totalUnread: Long,
     onSelectRoute: (String) -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     val railItemColors = NavigationRailItemDefaults.colors(
         selectedIconColor = MaterialTheme.colorScheme.primary,
         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -766,7 +798,10 @@ private fun PulseNavigationRail(
     ) {
         NavigationRailItem(
             selected = selectedRoute == Routes.CHATS,
-            onClick = { onSelectRoute(Routes.CHATS) },
+            onClick = {
+                if (selectedRoute != Routes.CHATS) haptics.selectionTick()
+                onSelectRoute(Routes.CHATS)
+            },
             colors = railItemColors,
             icon = {
                 BadgedBox(
@@ -791,7 +826,10 @@ private fun PulseNavigationRail(
         )
         NavigationRailItem(
             selected = selectedRoute == Routes.PEOPLE,
-            onClick = { onSelectRoute(Routes.PEOPLE) },
+            onClick = {
+                if (selectedRoute != Routes.PEOPLE) haptics.selectionTick()
+                onSelectRoute(Routes.PEOPLE)
+            },
             colors = railItemColors,
             icon = {
                 Icon(
@@ -803,7 +841,10 @@ private fun PulseNavigationRail(
         )
         NavigationRailItem(
             selected = selectedRoute == Routes.PROFILE,
-            onClick = { onSelectRoute(Routes.PROFILE) },
+            onClick = {
+                if (selectedRoute != Routes.PROFILE) haptics.selectionTick()
+                onSelectRoute(Routes.PROFILE)
+            },
             colors = railItemColors,
             icon = {
                 Icon(

@@ -48,6 +48,7 @@ fun IosInAppNotificationBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = rememberIosHaptics()
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -79,7 +80,10 @@ fun IosInAppNotificationBanner(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
                             shape = RoundedCornerShape(24.dp)
                         )
-                        .clickable { onOpenConversation(active.conversationId) }
+                        .clickable {
+                            haptics.lightTap()
+                            onOpenConversation(active.conversationId)
+                        }
                         .testTag("in_app_notification_banner")
                 ) {
                     Row(
@@ -137,7 +141,10 @@ fun IosInAppNotificationBanner(
                             )
                         }
                         IconButton(
-                            onClick = onDismiss,
+                            onClick = {
+                                haptics.lightTap()
+                                onDismiss()
+                            },
                             modifier = Modifier.size(48.dp)
                         ) {
                             Icon(

@@ -46,6 +46,7 @@ import com.example.data.model.Conversation
 import com.example.data.model.UserProfile
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.OnlinePresenceGreen
 
 @Composable
@@ -57,12 +58,14 @@ fun DirectChatInfoDialog(
     onDismiss: () -> Unit,
     onDeleteConversation: () -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     var confirmDelete by remember { mutableStateOf(false) }
     val isSelfChat = conversation.participantIds.distinct().size <= 1
     val title = conversation.displayTitleFor(currentUserId)
     val otherId = conversation.otherParticipantId(currentUserId)
     val photoUrl = otherProfile?.photoUrl ?: conversation.participantPhotos[otherId]
-    val canDelete = conversation.createdBy == currentUserId
+    val canDelete = conversation.createdBy == currentUserId ||
+        (conversation.type == Conversation.TYPE_DIRECT && currentUserId in conversation.participantIds)
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -91,7 +94,10 @@ fun DirectChatInfoDialog(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = {
+                        haptics.lightTap()
+                        onDismiss()
+                    }) {
                         Icon(Icons.Rounded.Close, contentDescription = "Close info")
                     }
                 }
@@ -241,7 +247,10 @@ fun DirectChatInfoDialog(
                     Spacer(modifier = Modifier.height(16.dp))
                     if (!confirmDelete) {
                         OutlinedButton(
-                            onClick = { confirmDelete = true },
+                            onClick = {
+                                haptics.lightTap()
+                                confirmDelete = true
+                            },
                             shape = CircleShape,
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = MaterialTheme.colorScheme.error
@@ -274,13 +283,19 @@ fun DirectChatInfoDialog(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 TextButton(
-                                    onClick = { confirmDelete = false },
+                                    onClick = {
+                                        haptics.lightTap()
+                                        confirmDelete = false
+                                    },
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text("Cancel")
                                 }
                                 OutlinedButton(
-                                    onClick = onDeleteConversation,
+                                    onClick = {
+                                        haptics.impactMedium()
+                                        onDeleteConversation()
+                                    },
                                     shape = CircleShape,
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         contentColor = MaterialTheme.colorScheme.error

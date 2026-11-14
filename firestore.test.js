@@ -200,6 +200,10 @@ test("Participants can create, query, and update conversation; non-participants 
       updatedAt: ts(),
     })
   );
+
+  // Charlie (non-participant) cannot delete DM; Bob (participant) can delete DM
+  await assertFails(charlieDb.collection("conversations").doc("dm_alice_bob").delete());
+  await assertSucceeds(bobDb.collection("conversations").doc("dm_alice_bob").delete());
 });
 
 // --- 5. Messages Subcollection, Reactions, Polls & Edits ---

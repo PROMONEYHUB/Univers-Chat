@@ -67,6 +67,12 @@ val ErrorRed = IosRed
 val ErrorContainerLight = IosRedContainerLight
 val ErrorContainerDark = IosRedContainerDark
 
+// Dynamic Island & Liquid Glass Surface Tokens
+val DynamicIslandDarkSurface = Color(0xFF10131A)
+val DynamicIslandDarkBorder = Color(0xFF282E3D)
+val AuroraCyan = Color(0xFF22D3EE)
+val AuroraViolet = Color(0xFF7C3AED)
+
 // iOS-Inspired Gradients & Brushes
 object PulseBrushes {
     val BrandGradient: Brush = Brush.linearGradient(
@@ -95,5 +101,13 @@ object PulseBrushes {
 
     val SavedNotesGradientDark: Brush = Brush.linearGradient(
         colors = listOf(Color(0xFF14223B), Color(0xFF231C3A))
+    )
+
+    val SpotlightCardLight: Brush = Brush.linearGradient(
+        colors = listOf(Color(0xFFF5F9FF), Color(0xFFFFFFFF))
+    )
+
+    val SpotlightCardDark: Brush = Brush.linearGradient(
+        colors = listOf(Color(0xFF182234), Color(0xFF1C1C1E))
     )
 }

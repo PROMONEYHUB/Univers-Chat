@@ -74,6 +74,7 @@ import com.example.ui.components.ImageUtils
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatDayHeader
 import com.example.ui.components.isSameCalendarDay
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.OnlinePresenceGreen
 import com.example.ui.viewmodel.ChatRoomViewModel
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +94,7 @@ fun ChatRoomScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val haptics = rememberIosHaptics()
     val scope = rememberCoroutineScope()
     val isDark = isSystemInDarkTheme()
 
@@ -142,6 +144,7 @@ fun ChatRoomScreen(
                     Toast.makeText(context, "Could not process selected photo.", Toast.LENGTH_SHORT).show()
                 } else {
                     val caption = draftText
+                    haptics.success()
                     viewModel.sendImage(conversation, currentUserProfile, caption, base64) {
                         draftText = ""
                         isTrayOpen = false
@@ -197,7 +200,10 @@ fun ChatRoomScreen(
                 navigationIcon = {
                     if (showBackButton) {
                         IconButton(
-                            onClick = onBack,
+                            onClick = {
+                                haptics.lightTap()
+                                onBack()
+                            },
                             modifier = Modifier.testTag("chat_back_button")
                         ) {
                             Icon(
@@ -214,6 +220,7 @@ fun ChatRoomScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
                             .clickable(enabled = conversation != null) {
+                                haptics.lightTap()
                                 if (isGroup) showGroupInfoDialog = true
                                 else showDirectInfoDialog = true
                             }
@@ -263,6 +270,7 @@ fun ChatRoomScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(
                                 onClick = {
+                                    haptics.lightTap()
                                     if (showSearchBar) {
                                         showSearchBar = false
                                         inChatSearchQuery = ""
@@ -283,6 +291,7 @@ fun ChatRoomScreen(
                             }
                             IconButton(
                                 onClick = {
+                                    haptics.lightTap()
                                     if (isGroup) showGroupInfoDialog = true
                                     else showDirectInfoDialog = true
                                 },
@@ -479,6 +488,7 @@ fun ChatRoomScreen(
                             }
                             IconButton(
                                 onClick = {
+                                    haptics.lightTap()
                                     if (editingMessage != null) draftText = ""
                                     viewModel.setEditingTarget(null)
                                     viewModel.setReplyTarget(null)
@@ -528,6 +538,7 @@ fun ChatRoomScreen(
                     val conv = conversation ?: return@IosMessageComposerBar
                     val profile = currentUserProfile ?: return@IosMessageComposerBar
                     if (draftText.trim().isEmpty()) return@IosMessageComposerBar
+                    haptics.success()
                     viewModel.sendOrEditText(conv, profile, draftText) {
                         draftText = ""
                         isTrayOpen = false
@@ -563,6 +574,7 @@ fun ChatRoomScreen(
             onDismiss = { showPollDialog = false },
             onCreatePoll = { question, options ->
                 showPollDialog = false
+                haptics.success()
                 viewModel.sendPoll(conversation, currentUserProfile, question, options) {}
             }
         )

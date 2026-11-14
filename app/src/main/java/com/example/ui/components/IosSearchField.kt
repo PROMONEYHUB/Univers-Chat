@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -37,8 +38,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -48,7 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Apple Spotlight-inspired borderless capsule search field with animated iOS Cancel button.
+ * Apple Spotlight-inspired frosted glass capsule search field with animated iOS Cancel button.
  */
 @Composable
 fun IosSearchField(
@@ -62,8 +67,25 @@ fun IosSearchField(
     onCancelClick: (() -> Unit)? = null
 ) {
     val focusManager = LocalFocusManager.current
+    val haptics = rememberIosHaptics()
+    val isDark = isSystemInDarkTheme()
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || query.isNotEmpty()
+    val rimBrush = rememberGlassRimBrush(highlighted = isFocused)
+    val frostBrush = remember(isDark, isFocused) {
+        val topAlpha = when {
+            isFocused && isDark -> 0.16f
+            isFocused -> 0.58f
+            isDark -> 0.10f
+            else -> 0.44f
+        }
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.White.copy(alpha = topAlpha * 0.6f)
+            )
+        )
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -72,30 +94,36 @@ fun IosSearchField(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(42.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
+                .height(46.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.Transparent)
                 .border(
-                    width = if (isFocused) 1.dp else 0.5.dp,
-                    color = if (isFocused) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                    },
-                    shape = RoundedCornerShape(14.dp)
-                )
-                .padding(horizontal = 12.dp),
+                    width = if (isFocused) 1.2.dp else 0.9.dp,
+                    brush = rimBrush,
+                    shape = RoundedCornerShape(16.dp)
+                ),
             contentAlignment = Alignment.CenterStart
         ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .blur(
+                        radius = 16.dp,
+                        edgeTreatment = BlurredEdgeTreatment.Rectangle
+                    )
+                    .background(frostBrush)
+            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Search,
-                    contentDescription = null,
+                    contentDescription = "Search",
                     tint = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(19.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
 
@@ -157,7 +185,10 @@ fun IosSearchField(
                                 .size(22.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f))
-                                .clickable { onQueryChange("") },
+                                .clickable {
+                                    haptics.lightTap()
+                                    onQueryChange("")
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -193,6 +224,7 @@ fun IosSearchField(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
+                            haptics.lightTap()
                             onQueryChange("")
                             focusManager.clearFocus()
                             onCancelClick?.invoke()

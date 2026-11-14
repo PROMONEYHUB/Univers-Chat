@@ -205,7 +205,8 @@ service cloud.firestore {
                        );
 
       allow delete: if isSignedIn() && isValidId(conversationId) &&
-                       existing().createdBy == request.auth.uid;
+                       (existing().createdBy == request.auth.uid ||
+                        (existing().type == 'direct' && request.auth.uid in existing().participantIds));
 
       // --- Subcollection: Messages ---
       match /messages/{messageId} {

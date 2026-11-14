@@ -9,6 +9,7 @@ import com.example.data.model.UserProfile
 import com.example.data.model.buildDirectConversationId
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
+import com.example.ui.auth.AuthProfilePrefill
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -40,7 +41,7 @@ class MessagingRepository(
 
     private fun requireUserId(): String {
         return auth.currentUser?.uid
-            ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
+            ?: throw IllegalStateException("User must be signed in before accessing Firestore.")
     }
 
     private fun <T> Flow<T>.logFirestoreErrors(
@@ -63,7 +64,9 @@ class MessagingRepository(
         val uid = requireUserId()
         require(uid == firebaseUser.uid) { "Authenticated UID mismatch" }
 
-        val email = firebaseUser.email?.takeIf { it.isNotBlank() } ?: "${uid}@universchat.local"
+        val email = firebaseUser.email?.takeIf { it.isNotBlank() }
+            ?: firebaseUser.phoneNumber?.takeIf { it.isNotBlank() }
+            ?: "${uid}@universchat.local"
         val privateRef = db.collection(USERS_COLLECTION).document(uid)
         val profileRef = db.collection(USER_PROFILES_COLLECTION).document(uid)
 
@@ -96,8 +99,12 @@ class MessagingRepository(
 
         try {
             val profileSnap = profileRef.get().await()
+            val pendingName = AuthProfilePrefill.pendingDisplayName?.takeIf { it.isNotBlank() }
+            AuthProfilePrefill.pendingDisplayName = null
             if (!profileSnap.exists()) {
-                val rawName = firebaseUser.displayName?.trim()?.takeIf { it.isNotBlank() }
+                val rawName = pendingName
+                    ?: firebaseUser.displayName?.trim()?.takeIf { it.isNotBlank() }
+                    ?: firebaseUser.phoneNumber?.takeIf { it.isNotBlank() }?.let { "Member ${it.takeLast(4)}" }
                     ?: email.substringBefore("@").ifBlank { "Univers Member" }
                 val displayName = rawName.take(60)
                 val sanitizedHandle = rawName.lowercase()
@@ -787,7 +794,11 @@ class MessagingRepository(
     suspend fun deleteConversation(conversation: Conversation): Result<Unit> = runCatching {
         val uid = requireUserId()
         require(conversation.id.isNotBlank()) { "Conversation ID is required." }
-        require(conversation.createdBy == uid) { "Only the conversation creator can delete this thread." }
+        val isCreator = conversation.createdBy == uid
+        val isDirectParticipant = conversation.type == Conversation.TYPE_DIRECT && uid in conversation.participantIds
+        require(isCreator || isDirectParticipant) {
+            "Only the conversation creator or direct chat participant can delete this thread."
+        }
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
         try {
             convRef.delete().await()
@@ -796,6 +807,22 @@ class MessagingRepository(
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.DELETE, convRef.path, auth)
             throw e
+        }
+    }
+
+    /**
+     * Deletes a direct chat or creator-owned channel, or leaves a group channel owned by someone else.
+     * Returns true if the conversation was deleted, or false if the user left the group channel.
+     */
+    suspend fun removeOrDeleteConversation(conversation: Conversation): Result<Boolean> = runCatching {
+        val uid = requireUserId()
+        require(conversation.id.isNotBlank()) { "Conversation ID is required." }
+        if (conversation.type == Conversation.TYPE_GROUP && conversation.createdBy != uid) {
+            leaveGroup(conversation).getOrThrow()
+            false
+        } else {
+            deleteConversation(conversation).getOrThrow()
+            true
         }
     }
 

@@ -47,6 +47,7 @@ import com.example.data.model.UserProfile
 import com.example.ui.components.IosSearchField
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
+import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosBlue
 import com.example.ui.theme.OnlinePresenceGreen
 import com.example.ui.theme.PulseBrushes
@@ -203,7 +204,7 @@ fun PeopleScreen(
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "When other people sign into Univers Chat with Google, their discoverable profiles appear here automatically.",
+                                        text = "When other people verify their phone number on Univers Chat, their discoverable profiles appear here automatically.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
@@ -248,6 +249,7 @@ private fun SavedNotesBannerCard(
     profile: UserProfile,
     onClick: () -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     val isDark = isSystemInDarkTheme()
     val bgBrush = if (isDark) PulseBrushes.SavedNotesGradientDark else PulseBrushes.SavedNotesGradientLight
 
@@ -313,7 +315,10 @@ private fun SavedNotesBannerCard(
             }
             Spacer(modifier = Modifier.width(10.dp))
             FilledTonalButton(
-                onClick = onClick,
+                onClick = {
+                    haptics.lightTap()
+                    onClick()
+                },
                 shape = CircleShape,
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -334,6 +339,7 @@ private fun GroupedPersonRow(
     showBottomDivider: Boolean,
     onMessageClick: () -> Unit
 ) {
+    val haptics = rememberIosHaptics()
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -422,7 +428,10 @@ private fun GroupedPersonRow(
             Spacer(modifier = Modifier.width(10.dp))
 
             FilledTonalButton(
-                onClick = onMessageClick,
+                onClick = {
+                    haptics.lightTap()
+                    onMessageClick()
+                },
                 shape = CircleShape,
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
