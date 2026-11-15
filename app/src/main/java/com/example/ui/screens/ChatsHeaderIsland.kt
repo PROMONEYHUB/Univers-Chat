@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MarkChatUnread
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material3.Icon
@@ -72,6 +73,7 @@ fun ChatsHeaderIsland(
     onlinePeople: List<UserProfile>,
     unreadConvCount: Int,
     onNewGroupClick: () -> Unit,
+    onCallHistoryClick: () -> Unit = {},
     onPersonClick: (UserProfile) -> Unit,
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -153,6 +155,23 @@ fun ChatsHeaderIsland(
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(
+                        onClick = {
+                            haptics.lightTap()
+                            onCallHistoryClick()
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("header_call_history_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.History,
+                            contentDescription = "Recent calls",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
                     IconButton(
                         onClick = {
                             haptics.lightTap()

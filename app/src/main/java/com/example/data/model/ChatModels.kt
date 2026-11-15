@@ -3,6 +3,7 @@ package com.example.data.model
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 
 sealed interface UiState<out T> {
@@ -18,6 +19,7 @@ data class PrivateUser(
     val email: String = "",
     val readReceiptsEnabled: Boolean = true,
     val notificationsEnabled: Boolean = true,
+    val blockedUserIds: List<String> = emptyList(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
@@ -31,7 +33,9 @@ data class UserProfile(
     val bio: String = "",
     val photoUrl: String = "",
     val statusVibe: String = "Available",
+    @get:PropertyName("isOnline") @field:PropertyName("isOnline")
     val isOnline: Boolean = true,
+    @get:PropertyName("isDiscoverable") @field:PropertyName("isDiscoverable")
     val isDiscoverable: Boolean = true,
     @ServerTimestamp val lastSeenAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
@@ -54,6 +58,11 @@ data class Conversation(
     val lastMessageType: String = "",
     @ServerTimestamp val lastMessageAt: Timestamp? = null,
     val unreadCounts: Map<String, Long> = emptyMap(),
+    val pinnedBy: Map<String, Boolean> = emptyMap(),
+    val mutedBy: Map<String, Boolean> = emptyMap(),
+    val pinnedMessageId: String? = null,
+    val pinnedMessagePreview: String? = null,
+    val pinnedMessageSenderName: String? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
@@ -75,6 +84,10 @@ data class Conversation(
         return unreadCounts[userId] ?: 0L
     }
 
+    fun isPinnedBy(userId: String): Boolean = pinnedBy[userId] == true
+
+    fun isMutedBy(userId: String): Boolean = mutedBy[userId] == true
+
     companion object {
         const val TYPE_DIRECT = "direct"
         const val TYPE_GROUP = "group"
@@ -92,6 +105,10 @@ data class Message(
     val type: String = TYPE_TEXT,
     val text: String = "",
     val imageBase64: String? = null,
+    val audioBase64: String? = null,
+    val audioDurationSec: Int = 0,
+    @get:PropertyName("isForwarded") @field:PropertyName("isForwarded")
+    val isForwarded: Boolean = false,
     val replyToMessageId: String? = null,
     val replyToSenderName: String? = null,
     val replyToPreview: String? = null,
@@ -99,6 +116,7 @@ data class Message(
     val pollQuestion: String? = null,
     val pollOptions: List<String> = emptyList(),
     val pollVotes: Map<String, String> = emptyMap(),
+    @get:PropertyName("isEdited") @field:PropertyName("isEdited")
     val isEdited: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
@@ -107,6 +125,7 @@ data class Message(
         const val TYPE_TEXT = "text"
         const val TYPE_IMAGE = "image"
         const val TYPE_POLL = "poll"
+        const val TYPE_AUDIO = "audio"
     }
 }
 

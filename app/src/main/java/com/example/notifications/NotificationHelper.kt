@@ -25,6 +25,7 @@ object NotificationHelper {
 
     const val CHANNEL_MESSAGES = "univers_chat_messages"
     const val CHANNEL_SYNC_STATUS = "univers_chat_live_sync"
+    const val CHANNEL_CALLS = "univers_chat_calls"
     const val SERVICE_NOTIFICATION_ID = 9001
 
     const val EXTRA_CONVERSATION_ID = "extra_conversation_id"
@@ -79,8 +80,29 @@ object NotificationHelper {
             setSound(null, null)
         }
 
+        val callRingtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val callAudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        val callsChannel = NotificationChannel(
+            CHANNEL_CALLS,
+            "HD Voice & Video Calls",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Incoming HD voice and video call alerts"
+            enableVibration(true)
+            enableLights(true)
+            lightColor = Color.rgb(52, 199, 89)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setShowBadge(true)
+            setSound(callRingtoneUri, callAudioAttributes)
+        }
+
         manager.createNotificationChannel(messageChannel)
         manager.createNotificationChannel(syncChannel)
+        manager.createNotificationChannel(callsChannel)
     }
 
     fun buildLiveSyncNotification(context: Context): Notification {

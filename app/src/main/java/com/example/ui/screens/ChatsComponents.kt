@@ -32,8 +32,11 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -336,7 +339,8 @@ fun ModernConversationCard(
     currentUserId: String,
     otherProfile: UserProfile?,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val isGroup = conversation.type == Conversation.TYPE_GROUP
     val title = conversation.displayTitleFor(currentUserId)
@@ -348,6 +352,8 @@ fun ModernConversationCard(
         else -> null
     }
     val unreadCount = conversation.unreadCountFor(currentUserId)
+    val isPinned = conversation.isPinnedBy(currentUserId)
+    val isMuted = conversation.isMutedBy(currentUserId)
     val isOutgoing = conversation.lastMessageSenderId == currentUserId && conversation.lastMessageText.isNotBlank()
     val timeText = formatRelativeTime(conversation.lastMessageAt ?: conversation.updatedAt ?: conversation.createdAt)
     val preview = when {
@@ -360,10 +366,11 @@ fun ModernConversationCard(
     val haptics = rememberIosHaptics()
     val isImagePreview = conversation.lastMessageType == Message.TYPE_IMAGE
     val isPollPreview = conversation.lastMessageType == Message.TYPE_POLL
+    val isVoicePreview = conversation.lastMessageType == Message.TYPE_AUDIO
 
     GlassmorphismCard(
         shape = RoundedCornerShape(22.dp),
-        highlighted = isSelected || unreadCount > 0L,
+        highlighted = isSelected || unreadCount > 0L || isPinned,
         tintAlpha = when {
             isSelected -> 0.62f
             unreadCount > 0L -> 0.54f
@@ -372,6 +379,10 @@ fun ModernConversationCard(
         onClick = {
             haptics.lightTap()
             onClick()
+        },
+        onLongClick = {
+            haptics.impactMedium()
+            onLongClick()
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -462,6 +473,24 @@ fun ModernConversationCard(
 
                     Spacer(modifier = Modifier.width(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isPinned) {
+                            Icon(
+                                imageVector = Icons.Rounded.PushPin,
+                                contentDescription = "Pinned",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        if (isMuted) {
+                            Icon(
+                                imageVector = Icons.Rounded.NotificationsOff,
+                                contentDescription = "Muted",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                         Text(
                             text = timeText,
                             style = MaterialTheme.typography.labelSmall,
@@ -488,7 +517,7 @@ fun ModernConversationCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        if (isOutgoing && !isImagePreview && !isPollPreview) {
+                        if (isOutgoing && !isImagePreview && !isPollPreview && !isVoicePreview) {
                             Icon(
                                 imageVector = Icons.Rounded.DoneAll,
                                 contentDescription = "Sent",
@@ -497,7 +526,7 @@ fun ModernConversationCard(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                         }
-                        if (isImagePreview || isPollPreview) {
+                        if (isImagePreview || isPollPreview || isVoicePreview) {
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
@@ -507,14 +536,22 @@ fun ModernConversationCard(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = if (isImagePreview) Icons.Rounded.PhotoCamera else Icons.Rounded.Poll,
+                                        imageVector = when {
+                                            isImagePreview -> Icons.Rounded.PhotoCamera
+                                            isVoicePreview -> Icons.Rounded.Mic
+                                            else -> Icons.Rounded.Poll
+                                        },
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
-                                        text = if (isImagePreview) "Photo" else "Poll",
+                                        text = when {
+                                            isImagePreview -> "Photo"
+                                            isVoicePreview -> "Voice"
+                                            else -> "Poll"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.primary
@@ -565,6 +602,7 @@ fun SwipeToDeleteConversationItem(
     isSelected: Boolean,
     isPendingDelete: Boolean,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit = {},
     onDeleteOrLeave: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -670,7 +708,8 @@ fun SwipeToDeleteConversationItem(
             currentUserId = currentUserId,
             otherProfile = otherProfile,
             isSelected = isSelected,
-            onClick = onOpen
+            onClick = onOpen,
+            onLongClick = onLongPress
         )
     }
 }

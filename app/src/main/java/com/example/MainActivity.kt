@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -54,6 +57,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
@@ -88,7 +92,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.data.model.CallSession
+import com.example.data.model.CallTarget
 import com.example.data.model.UiState
+import com.example.data.model.buildDirectConversationId
+import com.example.data.repository.CallSignalingRepository
 import com.example.data.repository.MessagingRepository
 import com.example.notifications.InAppMessageBanner
 import com.example.notifications.MessageNotificationCoordinator
@@ -101,17 +109,20 @@ import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.IosInAppNotificationBanner
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.components.rememberIosHaptics
+import com.example.ui.screens.CallHostOverlay
 import com.example.ui.screens.ChatRoomScreen
 import com.example.ui.screens.ChatsScreen
 import com.example.ui.screens.PeopleScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.theme.PulseChatTheme
+import com.example.ui.viewmodel.CallViewModel
 import com.example.ui.viewmodel.ChatRoomViewModel
 import com.example.ui.viewmodel.MainMessagingViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object Routes {
     const val CHATS = "chats"
@@ -182,13 +193,31 @@ private fun AuthenticatedShell(currentUserId: String) {
                 val app = checkNotNull(this[APPLICATION_KEY])
                 val dbId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(dbId)
-                MainMessagingViewModel(MessagingRepository(db), currentUserId)
+                MainMessagingViewModel(
+                    repository = MessagingRepository(db),
+                    currentUserId = currentUserId,
+                    callSignalingRepository = CallSignalingRepository(db)
+                )
+            }
+        }
+    )
+
+    val callViewModel: CallViewModel = viewModel(
+        key = "call_$currentUserId",
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY])
+                val dbId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(dbId)
+                CallViewModel(app, CallSignalingRepository(db), currentUserId)
             }
         }
     )
 
     val currentUserProfile by mainViewModel.currentUserProfile.collectAsStateWithLifecycle()
     val privateUser by mainViewModel.privateUser.collectAsStateWithLifecycle()
+    val blockedUserIds by mainViewModel.blockedUserIds.collectAsStateWithLifecycle()
+    val callHistory by mainViewModel.callHistory.collectAsStateWithLifecycle()
     val conversationsState by mainViewModel.conversationsState.collectAsStateWithLifecycle()
     val peopleState by mainViewModel.peopleState.collectAsStateWithLifecycle()
     val searchQuery by mainViewModel.searchQuery.collectAsStateWithLifecycle()
@@ -196,6 +225,13 @@ private fun AuthenticatedShell(currentUserId: String) {
     val peopleSearchQuery by mainViewModel.peopleSearchQuery.collectAsStateWithLifecycle()
     val actionMessage by mainViewModel.actionMessage.collectAsStateWithLifecycle()
     val isBusy by mainViewModel.isBusy.collectAsStateWithLifecycle()
+    val incomingCall by callViewModel.incomingCall.collectAsStateWithLifecycle()
+    val callState by callViewModel.callState.collectAsStateWithLifecycle()
+    val callNotice by callViewModel.callNotice.collectAsStateWithLifecycle()
+
+    LaunchedEffect(blockedUserIds) {
+        callViewModel.updateBlockedUserIds(blockedUserIds)
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -258,6 +294,73 @@ private fun AuthenticatedShell(currentUserId: String) {
         }
     }
 
+    LaunchedEffect(callNotice) {
+        val notice = callNotice
+        if (notice != null) {
+            snackbarHostState.showSnackbar(notice)
+            callViewModel.clearCallNotice()
+        }
+    }
+
+    var pendingCallAction by remember { mutableStateOf<PendingCallAction?>(null) }
+    var callPermissionMessage by remember { mutableStateOf<String?>(null) }
+
+    val executePendingCall: (PendingCallAction) -> Unit = { action ->
+        when (action) {
+            is PendingCallAction.Outgoing -> {
+                val profile = currentUserProfile
+                if (profile == null) {
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Syncing your profile, please try again in a moment.")
+                    }
+                } else {
+                    callViewModel.startOutgoingCall(
+                        callerProfile = profile,
+                        target = action.target,
+                        isVideoCall = action.isVideoCall
+                    )
+                }
+            }
+            is PendingCallAction.Accept -> {
+                callViewModel.acceptIncomingCall(action.session)
+            }
+        }
+    }
+
+    val callPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val action = pendingCallAction ?: return@rememberLauncherForActivityResult
+        pendingCallAction = null
+        val allGranted = results.values.all { it }
+        if (allGranted) {
+            executePendingCall(action)
+        } else {
+            callPermissionMessage = if (action.needsCamera) {
+                "Camera and Microphone permissions are required to place or answer HD Video calls."
+            } else {
+                "Microphone permission is required to place or answer HD Voice calls."
+            }
+        }
+    }
+
+    val launchWithCallPermissions: (PendingCallAction) -> Unit = { action ->
+        val required = if (action.needsCamera) {
+            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+        } else {
+            arrayOf(Manifest.permission.RECORD_AUDIO)
+        }
+        val missing = required.filter { perm ->
+            ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            executePendingCall(action)
+        } else {
+            pendingCallAction = action
+            callPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     var activeBanner by remember { mutableStateOf<InAppMessageBanner?>(null) }
     LaunchedEffect(currentUserId) {
         MessageNotificationCoordinator.inAppBanners.collect { banner ->
@@ -271,9 +374,9 @@ private fun AuthenticatedShell(currentUserId: String) {
         }
     }
 
-    val totalUnread = remember(conversationsState, currentUserId) {
-        val list = (conversationsState as? UiState.Success)?.data.orEmpty()
-        list.sumOf { it.unreadCountFor(currentUserId) }
+    val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
+    val totalUnread = remember(allConversations, currentUserId) {
+        allConversations.sumOf { it.unreadCountFor(currentUserId) }
     }
     val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
     val readReceiptsEnabled = privateUser?.readReceiptsEnabled ?: true
@@ -355,7 +458,15 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     }
                                     mainViewModel.deleteOrLeaveConversation(conversation, onResult)
                                 },
-                                onProfileClick = { activeTab = Routes.PROFILE }
+                                onProfileClick = { activeTab = Routes.PROFILE },
+                                blockedUserIds = blockedUserIds,
+                                callHistory = callHistory,
+                                onTogglePinConversation = mainViewModel::togglePinConversation,
+                                onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                onToggleMarkUnread = mainViewModel::toggleMarkUnread,
+                                onStartCall = { target, isVideo ->
+                                    launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                }
                             )
                         }
                         VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -379,7 +490,15 @@ private fun AuthenticatedShell(currentUserId: String) {
                                         allPeople = allPeople,
                                         readReceiptsEnabled = readReceiptsEnabled,
                                         showBackButton = false,
-                                        onBack = { expandedSelectedChatId = null }
+                                        onBack = { expandedSelectedChatId = null },
+                                        onStartCall = { target, isVideo ->
+                                            launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                        },
+                                        allConversations = allConversations,
+                                        blockedUserIds = blockedUserIds,
+                                        onTogglePinConversation = mainViewModel::togglePinConversation,
+                                        onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                        onToggleBlockUser = mainViewModel::setUserBlocked
                                     )
                                 }
                             } else {
@@ -398,7 +517,21 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     expandedSelectedChatId = convId
                                     activeTab = Routes.CHATS
                                 }
-                            }
+                            },
+                            onCallPerson = { person, isVideo ->
+                                launchWithCallPermissions(
+                                    PendingCallAction.Outgoing(
+                                        target = CallTarget(
+                                            userId = person.userId,
+                                            displayName = person.displayName,
+                                            photoUrl = person.photoUrl,
+                                            conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                        ),
+                                        isVideoCall = isVideo
+                                    )
+                                )
+                            },
+                            blockedUserIds = blockedUserIds
                         )
                     } else {
                         ProfileScreen(
@@ -408,6 +541,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                             onSaveProfile = mainViewModel::saveProfile,
                             onUpdatePrivacy = mainViewModel::updatePrivacyPreferences,
                             onSignOut = {
+                                callViewModel.hangUp()
                                 MessageNotificationCoordinator.stopObserving()
                                 RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                 mainViewModel.setOnlineStatus(false)
@@ -418,7 +552,10 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 }
-                            }
+                            },
+                            blockedUserIds = blockedUserIds,
+                            allPeople = allPeople,
+                            onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) }
                         )
                     }
                 }
@@ -504,7 +641,15 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 onDeleteConversation = { conversation, onResult ->
                                     mainViewModel.deleteOrLeaveConversation(conversation, onResult)
                                 },
-                                onProfileClick = { navigateTopLevel(Routes.PROFILE) }
+                                onProfileClick = { navigateTopLevel(Routes.PROFILE) },
+                                blockedUserIds = blockedUserIds,
+                                callHistory = callHistory,
+                                onTogglePinConversation = mainViewModel::togglePinConversation,
+                                onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                onToggleMarkUnread = mainViewModel::toggleMarkUnread,
+                                onStartCall = { target, isVideo ->
+                                    launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                }
                             )
                         }
 
@@ -519,7 +664,21 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     mainViewModel.startDirectChat(person) { convId ->
                                         navController.navigate(Routes.chatRoom(convId))
                                     }
-                                }
+                                },
+                                onCallPerson = { person, isVideo ->
+                                    launchWithCallPermissions(
+                                        PendingCallAction.Outgoing(
+                                            target = CallTarget(
+                                                userId = person.userId,
+                                                displayName = person.displayName,
+                                                photoUrl = person.photoUrl,
+                                                conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                            ),
+                                            isVideoCall = isVideo
+                                        )
+                                    )
+                                },
+                                blockedUserIds = blockedUserIds
                             )
                         }
 
@@ -531,6 +690,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 onSaveProfile = mainViewModel::saveProfile,
                                 onUpdatePrivacy = mainViewModel::updatePrivacyPreferences,
                                 onSignOut = {
+                                    callViewModel.hangUp()
                                     MessageNotificationCoordinator.stopObserving()
                                     RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                     mainViewModel.setOnlineStatus(false)
@@ -541,7 +701,10 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                     }
-                                }
+                                },
+                                blockedUserIds = blockedUserIds,
+                                allPeople = allPeople,
+                                onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) }
                             )
                         }
 
@@ -572,13 +735,42 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 allPeople = allPeople,
                                 readReceiptsEnabled = readReceiptsEnabled,
                                 showBackButton = true,
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onStartCall = { target, isVideo ->
+                                    launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                },
+                                allConversations = allConversations,
+                                blockedUserIds = blockedUserIds,
+                                onTogglePinConversation = mainViewModel::togglePinConversation,
+                                onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                onToggleBlockUser = mainViewModel::setUserBlocked
                             )
                         }
                     }
                 }
             }
         }
+
+        CallHostOverlay(
+            currentUserId = currentUserId,
+            incomingCall = incomingCall,
+            callState = callState,
+            onAcceptIncoming = { session ->
+                launchWithCallPermissions(PendingCallAction.Accept(session))
+            },
+            onDeclineIncoming = callViewModel::declineIncomingCall,
+            onHangUp = callViewModel::hangUp,
+            onToggleMute = callViewModel::toggleMute,
+            onToggleSpeaker = callViewModel::toggleSpeaker,
+            onToggleCamera = callViewModel::toggleCamera,
+            onSwitchCamera = callViewModel::switchCamera,
+            onCycleQuality = callViewModel::cycleVideoQualityPreset,
+            onSetMinimized = callViewModel::setMinimized,
+            onAttachLocalRenderer = callViewModel::attachLocalRenderer,
+            onDetachLocalRenderer = callViewModel::detachLocalRenderer,
+            onAttachRemoteRenderer = callViewModel::attachRemoteRenderer,
+            onDetachRemoteRenderer = callViewModel::detachRemoteRenderer
+        )
 
         IosInAppNotificationBanner(
             banner = activeBanner,
@@ -589,6 +781,31 @@ private fun AuthenticatedShell(currentUserId: String) {
             onDismiss = { activeBanner = null },
             modifier = Modifier.align(Alignment.TopCenter)
         )
+
+        callPermissionMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = { callPermissionMessage = null },
+                title = { Text("Permission needed for HD Calls") },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { callPermissionMessage = null }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+    }
+}
+
+private sealed interface PendingCallAction {
+    val needsCamera: Boolean
+
+    data class Outgoing(val target: CallTarget, val isVideoCall: Boolean) : PendingCallAction {
+        override val needsCamera: Boolean get() = isVideoCall
+    }
+
+    data class Accept(val session: CallSession) : PendingCallAction {
+        override val needsCamera: Boolean get() = session.isVideoCall
     }
 }
 

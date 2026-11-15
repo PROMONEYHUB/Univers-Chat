@@ -1,8 +1,10 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -127,6 +129,7 @@ object GlassmorphismDefaults {
  * @param enabled Whether clicks are enabled when [onClick] is provided.
  * @param content Sharp foreground content rendered above the blurred glass backdrop.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GlassmorphismCard(
     modifier: Modifier = Modifier,
@@ -140,6 +143,7 @@ fun GlassmorphismCard(
     tintAlpha: Float? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -180,13 +184,18 @@ fun GlassmorphismCard(
         }
     )
 
-    val interactiveModifier = if (onClick != null) {
-        Modifier
-            .minimumInteractiveComponentSize()
-            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-            .clickable(enabled = enabled, onClick = onClick)
-    } else {
-        Modifier
+    val interactiveModifier = when {
+        onLongClick != null || onClick != null -> {
+            Modifier
+                .minimumInteractiveComponentSize()
+                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                .combinedClickable(
+                    enabled = enabled,
+                    onClick = { onClick?.invoke() },
+                    onLongClick = onLongClick
+                )
+        }
+        else -> Modifier
     }
 
     Box(

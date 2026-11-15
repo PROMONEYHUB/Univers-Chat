@@ -48,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.CallSession
+import com.example.data.model.CallTarget
 import com.example.data.model.Conversation
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
@@ -76,16 +78,24 @@ fun ChatsScreen(
     onCreateGroupChat: (title: String, topic: String, members: List<UserProfile>) -> Unit,
     onDeleteConversation: (Conversation, onResult: (Boolean) -> Unit) -> Unit = { _, onResult -> onResult(false) },
     onProfileClick: () -> Unit = {},
+    blockedUserIds: Set<String> = emptySet(),
+    callHistory: List<CallSession> = emptyList(),
+    onTogglePinConversation: (Conversation) -> Unit = {},
+    onToggleMuteConversation: (Conversation) -> Unit = {},
+    onToggleMarkUnread: (Conversation) -> Unit = {},
+    onStartCall: (target: CallTarget, isVideoCall: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
     var showNewChatDialog by remember { mutableStateOf(false) }
     var openDialogInGroupMode by remember { mutableStateOf(false) }
+    var showCallHistoryDialog by remember { mutableStateOf(false) }
+    var optionsTargetConversation by remember { mutableStateOf<Conversation?>(null) }
     val pendingDeleteIds = remember { mutableStateListOf<String>() }
 
     val peopleList = (peopleState as? UiState.Success)?.data.orEmpty()
-    val otherPeople = remember(peopleList, currentUserId) {
-        peopleList.filter { it.userId != currentUserId }
+    val otherPeople = remember(peopleList, currentUserId, blockedUserIds) {
+        peopleList.filter { it.userId != currentUserId && it.userId !in blockedUserIds }
             .sortedByDescending { it.isOnline }
     }
     val onlinePeople = remember(otherPeople) { otherPeople.filter { it.isOnline } }
@@ -179,6 +189,7 @@ fun ChatsScreen(
                         openDialogInGroupMode = true
                         showNewChatDialog = true
                     },
+                    onCallHistoryClick = { showCallHistoryDialog = true },
                     onPersonClick = onStartDirectChat,
                     onProfileClick = onProfileClick
                 )
@@ -348,6 +359,7 @@ fun ChatsScreen(
                                             isSelected = conversation.id == selectedConversationId,
                                             isPendingDelete = isPendingDelete,
                                             onOpen = { onOpenConversation(conversation.id) },
+                                            onLongPress = { optionsTargetConversation = conversation },
                                             onDeleteOrLeave = {
                                                 if (conversation.id !in pendingDeleteIds) {
                                                     pendingDeleteIds.add(conversation.id)
@@ -371,7 +383,7 @@ fun ChatsScreen(
 
     if (showNewChatDialog) {
         NewConversationDialog(
-            people = peopleList,
+            people = peopleList.filter { it.userId !in blockedUserIds },
             currentUserId = currentUserId,
             initialGroupMode = openDialogInGroupMode,
             onDismiss = { showNewChatDialog = false },
@@ -382,6 +394,37 @@ fun ChatsScreen(
             onCreateGroup = { title, topic, members ->
                 showNewChatDialog = false
                 onCreateGroupChat(title, topic, members)
+            }
+        )
+    }
+
+    if (showCallHistoryDialog) {
+        CallHistoryDialog(
+            calls = callHistory,
+            currentUserId = currentUserId,
+            blockedUserIds = blockedUserIds,
+            onDismiss = { showCallHistoryDialog = false },
+            onCallBack = onStartCall
+        )
+    }
+
+    optionsTargetConversation?.let { targetConv ->
+        ConversationOptionsDialog(
+            conversation = targetConv,
+            currentUserId = currentUserId,
+            onDismiss = { optionsTargetConversation = null },
+            onTogglePin = { onTogglePinConversation(targetConv) },
+            onToggleMute = { onToggleMuteConversation(targetConv) },
+            onToggleMarkUnread = { onToggleMarkUnread(targetConv) },
+            onDeleteOrLeave = {
+                if (targetConv.id !in pendingDeleteIds) {
+                    pendingDeleteIds.add(targetConv.id)
+                }
+                onDeleteConversation(targetConv) { success ->
+                    if (!success) {
+                        pendingDeleteIds.remove(targetConv.id)
+                    }
+                }
             }
         )
     }

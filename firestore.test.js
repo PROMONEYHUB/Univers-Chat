@@ -533,3 +533,128 @@ test("Participants can initiate, accept, exchange ICE candidates, end HD calls; 
     })
   );
 });
+
+// --- 7. Social Messaging Options: Voice Notes, Pin/Mute, Pin Message, Forwarding & Block Users ---
+
+test("Participants can send voice notes, pin/mute threads, pin messages, forward, and block users safely", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      email: "alice@example.com",
+      readReceiptsEnabled: true,
+      notificationsEnabled: true,
+      blockedUserIds: [],
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice blocks Charlie
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      blockedUserIds: [CHARLIE_UID],
+      updatedAt: ts(),
+    })
+  );
+  // Bob cannot modify Alice's blockedUserIds
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).update({
+      blockedUserIds: [],
+      updatedAt: ts(),
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_social").set({
+      type: "direct",
+      title: "",
+      createdBy: ALICE_UID,
+      participantIds: [ALICE_UID, BOB_UID],
+      participantNames: { [ALICE_UID]: "Alice", [BOB_UID]: "Bob" },
+      participantPhotos: {},
+      lastMessageText: "",
+      lastMessageSenderId: "",
+      lastMessageSenderName: "",
+      lastMessageType: "",
+      lastMessageAt: ts(),
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 0 },
+      pinnedBy: {},
+      mutedBy: {},
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Voice note creation succeeds with valid audioBase64, fails when audioBase64 is empty
+  await assertSucceeds(
+    aliceDb
+      .collection("conversations")
+      .doc("dm_social")
+      .collection("messages")
+      .doc("voice_1")
+      .set({
+        conversationId: "dm_social",
+        senderId: ALICE_UID,
+        senderName: "Alice",
+        participantIds: [ALICE_UID, BOB_UID],
+        type: "audio",
+        text: "Voice message (0:04)",
+        audioBase64: "AAAAIGZ0eXBtcDQyAAAAAG1wNDJpc29tYXZjMQ==",
+        audioDurationSec: 4,
+        isForwarded: true,
+        isEdited: false,
+        createdAt: ts(),
+        updatedAt: ts(),
+      })
+  );
+
+  await assertFails(
+    aliceDb
+      .collection("conversations")
+      .doc("dm_social")
+      .collection("messages")
+      .doc("voice_invalid")
+      .set({
+        conversationId: "dm_social",
+        senderId: ALICE_UID,
+        senderName: "Alice",
+        participantIds: [ALICE_UID, BOB_UID],
+        type: "audio",
+        text: "Missing audio payload",
+        audioBase64: "",
+        audioDurationSec: 4,
+        isEdited: false,
+        createdAt: ts(),
+        updatedAt: ts(),
+      })
+  );
+
+  // Bob can pin/mute thread (Action 5) and pin a message (Action 6)
+  await assertSucceeds(
+    bobDb.collection("conversations").doc("dm_social").update({
+      pinnedBy: { [BOB_UID]: true },
+      mutedBy: { [BOB_UID]: true },
+      updatedAt: ts(),
+    })
+  );
+  await assertSucceeds(
+    bobDb.collection("conversations").doc("dm_social").update({
+      pinnedMessageId: "voice_1",
+      pinnedMessagePreview: "🎤 Voice message (0:04)",
+      pinnedMessageSenderName: "Alice",
+      updatedAt: ts(),
+    })
+  );
+
+  // Charlie cannot pin or mute Alice & Bob's chat
+  await assertFails(
+    charlieDb.collection("conversations").doc("dm_social").update({
+      pinnedBy: { [CHARLIE_UID]: true },
+      updatedAt: ts(),
+    })
+  );
+});

@@ -165,6 +165,63 @@ class ChatRoomViewModel(
         }
     }
 
+    fun sendVoiceNote(
+        conversation: Conversation,
+        senderProfile: UserProfile,
+        audioBase64: String,
+        durationSec: Int,
+        onSuccess: () -> Unit
+    ) {
+        val replying = _replyingTo.value
+        viewModelScope.launch {
+            _isSending.value = true
+            repository.sendVoiceMessage(conversation, senderProfile, audioBase64, durationSec, replying)
+                .onSuccess {
+                    _isSending.value = false
+                    _replyingTo.value = null
+                    onSuccess()
+                }
+                .onFailure { err ->
+                    _isSending.value = false
+                    _errorBanner.value = err.localizedMessage ?: "Failed to send voice message"
+                }
+        }
+    }
+
+    fun pinOrUnpinMessage(
+        conversation: Conversation,
+        message: Message?,
+        onComplete: (pinned: Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            repository.pinMessage(conversation.id, message)
+                .onSuccess { onComplete(message != null) }
+                .onFailure { err ->
+                    _errorBanner.value = err.localizedMessage ?: "Failed to update pinned message"
+                }
+        }
+    }
+
+    fun forwardMessage(
+        targetConversation: Conversation,
+        senderProfile: UserProfile,
+        original: Message,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            _isSending.value = true
+            repository.forwardMessage(targetConversation, senderProfile, original)
+                .onSuccess {
+                    _isSending.value = false
+                    onSuccess()
+                }
+                .onFailure { err ->
+                    _isSending.value = false
+                    _errorBanner.value = err.localizedMessage ?: "Failed to forward message"
+                }
+        }
+    }
+
     fun deleteMessage(message: Message) {
         viewModelScope.launch {
             repository.deleteMessage(conversationId, message.id)

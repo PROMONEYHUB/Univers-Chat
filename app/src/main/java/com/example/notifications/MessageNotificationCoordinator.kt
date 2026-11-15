@@ -43,6 +43,9 @@ object MessageNotificationCoordinator {
     private var notificationsEnabled: Boolean = true
 
     @Volatile
+    private var blockedUserIds: Set<String> = emptySet()
+
+    @Volatile
     private var appInForeground: Boolean = false
 
     @Volatile
@@ -97,6 +100,7 @@ object MessageNotificationCoordinator {
                     .collect { privateUser ->
                         if (privateUser != null) {
                             notificationsEnabled = privateUser.notificationsEnabled
+                            blockedUserIds = privateUser.blockedUserIds.toSet()
                         }
                     }
             }
@@ -143,6 +147,8 @@ object MessageNotificationCoordinator {
 
             val senderId = conv.lastMessageSenderId
             if (senderId.isBlank() || senderId == currentUserId) continue
+            if (senderId in blockedUserIds) continue
+            if (conv.isMutedBy(currentUserId)) continue
             if (conv.unreadCountFor(currentUserId) <= 0L) continue
             if (!notificationsEnabled) continue
 
@@ -194,6 +200,7 @@ object MessageNotificationCoordinator {
         return when (conversation.lastMessageType) {
             Message.TYPE_IMAGE -> "📷 Shared a photo"
             Message.TYPE_POLL -> "📊 Started a live poll"
+            Message.TYPE_AUDIO -> "🎤 Sent a voice message"
             else -> "Sent a message"
         }
     }

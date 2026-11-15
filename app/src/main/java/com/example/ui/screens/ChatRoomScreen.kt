@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,9 +37,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -46,12 +52,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,12 +69,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.audio.VoiceNotePlayer
+import com.example.audio.VoiceNoteRecorder
+import com.example.data.model.CallTarget
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UiState
@@ -78,6 +93,7 @@ import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.OnlinePresenceGreen
 import com.example.ui.viewmodel.ChatRoomViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -91,9 +107,16 @@ fun ChatRoomScreen(
     readReceiptsEnabled: Boolean,
     showBackButton: Boolean,
     onBack: () -> Unit,
+    onStartCall: (target: CallTarget, isVideoCall: Boolean) -> Unit = { _, _ -> },
+    allConversations: List<Conversation> = emptyList(),
+    blockedUserIds: Set<String> = emptySet(),
+    onTogglePinConversation: (Conversation) -> Unit = {},
+    onToggleMuteConversation: (Conversation) -> Unit = {},
+    onToggleBlockUser: (targetUserId: String, blocked: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val haptics = rememberIosHaptics()
     val scope = rememberCoroutineScope()
     val isDark = isSystemInDarkTheme()
@@ -107,6 +130,7 @@ fun ChatRoomScreen(
 
     var draftText by rememberSaveable(viewModel.conversationId) { mutableStateOf("") }
     var selectedMessageForActions by remember { mutableStateOf<Message?>(null) }
+    var messageToForward by remember { mutableStateOf<Message?>(null) }
     var lightboxState by remember { mutableStateOf<Triple<Bitmap, String, String>?>(null) }
     var showPollDialog by remember { mutableStateOf(false) }
     var showGroupInfoDialog by remember { mutableStateOf(false) }
@@ -114,9 +138,27 @@ fun ChatRoomScreen(
     var showSearchBar by rememberSaveable(viewModel.conversationId) { mutableStateOf(false) }
     var inChatSearchQuery by rememberSaveable(viewModel.conversationId) { mutableStateOf("") }
     var isTrayOpen by remember { mutableStateOf(false) }
+    var pendingGroupCallVideo by remember { mutableStateOf<Boolean?>(null) }
+
+    val voiceRecorder = remember(context) { VoiceNoteRecorder(context) }
+    val voicePlayer = remember(context) { VoiceNotePlayer(context) }
+    val voicePlaybackState by voicePlayer.state.collectAsStateWithLifecycle()
+    var isRecordingAudio by remember { mutableStateOf(false) }
+    var recordingSeconds by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceRecorder.cancel()
+            voicePlayer.release()
+        }
+    }
 
     val conversation = (conversationState as? UiState.Success)?.data
     val messages = (messagesState as? UiState.Success)?.data.orEmpty()
+    val photoMessages = remember(messages) {
+        messages.filter { it.type == Message.TYPE_IMAGE && !it.imageBase64.isNullOrBlank() }
+    }
+    val peopleMap = remember(allPeople) { allPeople.associateBy { it.userId } }
     val filteredMessages = remember(messages, showSearchBar, inChatSearchQuery) {
         if (!showSearchBar || inChatSearchQuery.isBlank()) messages
         else messages.filter { msg ->
@@ -130,6 +172,76 @@ fun ChatRoomScreen(
     val listState = rememberLazyListState()
     val showJumpToBottom by remember {
         derivedStateOf { listState.canScrollForward && filteredMessages.isNotEmpty() }
+    }
+
+    val beginVoiceRecording: () -> Unit = {
+        voicePlayer.stop()
+        voiceRecorder.start()
+            .onSuccess {
+                isTrayOpen = false
+                recordingSeconds = 0
+                isRecordingAudio = true
+            }
+            .onFailure { err ->
+                isRecordingAudio = false
+                Toast.makeText(
+                    context,
+                    err.localizedMessage ?: "Microphone unavailable",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+    }
+
+    val finishAndSendVoiceRecording: () -> Unit = {
+        val conv = conversation
+        val profile = currentUserProfile
+        isRecordingAudio = false
+        val encoded = voiceRecorder.stopAndEncode()
+        if (conv != null && profile != null) {
+            encoded.onSuccess { note ->
+                viewModel.sendVoiceNote(conv, profile, note.base64, note.durationSec) {}
+            }.onFailure { err ->
+                Toast.makeText(
+                    context,
+                    err.localizedMessage ?: "Voice recording too short",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    LaunchedEffect(isRecordingAudio) {
+        if (isRecordingAudio) {
+            while (isRecordingAudio && recordingSeconds < 29) {
+                delay(1000L)
+                recordingSeconds += 1
+            }
+            if (isRecordingAudio && recordingSeconds >= 29) {
+                finishAndSendVoiceRecording()
+            }
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            beginVoiceRecording()
+        } else {
+            Toast.makeText(context, "Microphone permission is needed for voice messages.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val requestStartVoiceRecording: () -> Unit = {
+        val hasMic = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasMic) {
+            beginVoiceRecording()
+        } else {
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -172,10 +284,15 @@ fun ChatRoomScreen(
         otherId?.let { id -> allPeople.firstOrNull { it.userId == id } }
     }
     val isGroup = conversation?.type == Conversation.TYPE_GROUP
+    val isSelfChat = !isGroup && (conversation?.participantIds?.distinct()?.size ?: 0) <= 1
+    val isOtherBlocked = !isGroup && !isSelfChat && otherId != null && otherId in blockedUserIds
+    val canCallInThread = conversation != null && !isSelfChat && !isOtherBlocked &&
+        conversation.participantIds.any { it != viewModel.currentUserId }
     val title = conversation?.displayTitleFor(viewModel.currentUserId) ?: "Chat"
-    val isOtherOnline = !isGroup && otherProfile?.isOnline == true
+    val isOtherOnline = !isGroup && !isOtherBlocked && otherProfile?.isOnline == true
     val subtitle = when {
         conversation == null -> "Loading…"
+        isOtherBlocked -> "Blocked contact"
         isGroup -> {
             val base = "${conversation.participantIds.size} members"
             if (conversation.topic.isNotBlank()) "$base · ${conversation.topic}" else base
@@ -268,6 +385,63 @@ fun ChatRoomScreen(
                             )
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (canCallInThread) {
+                                val triggerCall: (Boolean) -> Unit = { isVideo ->
+                                    val conv = conversation
+                                    if (conv != null) {
+                                        if (isGroup) {
+                                            pendingGroupCallVideo = isVideo
+                                        } else if (otherId != null) {
+                                            val peerName = otherProfile?.displayName
+                                                ?: conv.participantNames[otherId]
+                                                ?: title
+                                            val peerPhoto = otherProfile?.photoUrl
+                                                ?: conv.participantPhotos[otherId]
+                                            onStartCall(
+                                                CallTarget(
+                                                    userId = otherId,
+                                                    displayName = peerName,
+                                                    photoUrl = peerPhoto,
+                                                    conversationId = conv.id
+                                                ),
+                                                isVideo
+                                            )
+                                        }
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        triggerCall(false)
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .testTag("voice_call_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Call,
+                                        contentDescription = "Start HD voice call",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        triggerCall(true)
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .testTag("video_call_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Videocam,
+                                        contentDescription = "Start HD video call",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = {
                                     haptics.lightTap()
@@ -279,14 +453,14 @@ fun ChatRoomScreen(
                                     }
                                 },
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(38.dp)
                                     .testTag("chat_search_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Search,
                                     contentDescription = "Search conversation",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                             IconButton(
@@ -297,14 +471,14 @@ fun ChatRoomScreen(
                                 },
                                 enabled = conversation != null,
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(38.dp)
                                     .testTag(if (isGroup) "group_info_button" else "direct_info_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Info,
                                     contentDescription = if (isGroup) "Channel info" else "Contact info",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -330,6 +504,24 @@ fun ChatRoomScreen(
                     onClose = {
                         showSearchBar = false
                         inChatSearchQuery = ""
+                    }
+                )
+            }
+
+            if (conversation != null && !conversation.pinnedMessageId.isNullOrBlank()) {
+                PinnedMessageBanner(
+                    senderName = conversation.pinnedMessageSenderName.orEmpty(),
+                    preview = conversation.pinnedMessagePreview.orEmpty(),
+                    onJumpToPinned = {
+                        val idx = filteredMessages.indexOfFirst { it.id == conversation.pinnedMessageId }
+                        if (idx >= 0) {
+                            scope.launch { listState.animateScrollToItem(idx) }
+                        } else {
+                            Toast.makeText(context, "Pinned message is not in current view.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onUnpin = {
+                        viewModel.pinOrUnpinMessage(conversation, null)
                     }
                 )
             }
@@ -421,6 +613,13 @@ fun ChatRoomScreen(
                                         onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
                                         onOpenImage = { bmp ->
                                             lightboxState = Triple(bmp, msg.senderName, msg.text)
+                                        },
+                                        voicePlaybackState = voicePlaybackState,
+                                        onToggleVoicePlayback = { voiceMsg ->
+                                            val encoded = voiceMsg.audioBase64
+                                            if (!encoded.isNullOrBlank()) {
+                                                voicePlayer.togglePlayback(voiceMsg.id, encoded)
+                                            }
                                         }
                                     )
                                 }
@@ -501,62 +700,159 @@ fun ChatRoomScreen(
                 }
             }
 
-            // Expandable iPhone Quick Options Tray
-            IosQuickInsertTray(
-                visible = isTrayOpen,
-                onPickPhoto = {
-                    isTrayOpen = false
-                    photoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                },
-                onCreatePoll = {
-                    isTrayOpen = false
-                    showPollDialog = true
-                },
-                onInsertQuickReply = { snippet ->
-                    draftText = if (draftText.isBlank()) snippet else "$draftText $snippet"
-                    isTrayOpen = false
-                }
-            )
-
-            // Capsule iOS Composer Bar
-            IosMessageComposerBar(
-                draftText = draftText,
-                onDraftChange = { draftText = it },
-                canInteract = conversation != null && currentUserProfile != null,
-                isSending = isSending,
-                isTrayOpen = isTrayOpen,
-                onToggleTray = { isTrayOpen = !isTrayOpen },
-                onPickPhoto = {
-                    photoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                },
-                onOpenPoll = { showPollDialog = true },
-                onSend = {
-                    val conv = conversation ?: return@IosMessageComposerBar
-                    val profile = currentUserProfile ?: return@IosMessageComposerBar
-                    if (draftText.trim().isEmpty()) return@IosMessageComposerBar
-                    haptics.success()
-                    viewModel.sendOrEditText(conv, profile, draftText) {
-                        draftText = ""
-                        isTrayOpen = false
+            if (isOtherBlocked && otherId != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Block,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "You blocked this contact",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        TextButton(
+                            onClick = { onToggleBlockUser(otherId, false) },
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text("Unblock", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-            )
+            } else {
+                // Expandable iPhone Quick Options Tray
+                IosQuickInsertTray(
+                    visible = isTrayOpen && !isRecordingAudio,
+                    onPickPhoto = {
+                        isTrayOpen = false
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onCreatePoll = {
+                        isTrayOpen = false
+                        showPollDialog = true
+                    },
+                    onRecordVoice = {
+                        isTrayOpen = false
+                        requestStartVoiceRecording()
+                    },
+                    onInsertQuickReply = { snippet ->
+                        draftText = if (draftText.isBlank()) snippet else "$draftText $snippet"
+                        isTrayOpen = false
+                    }
+                )
+
+                // Capsule iOS Composer Bar
+                IosMessageComposerBar(
+                    draftText = draftText,
+                    onDraftChange = { draftText = it },
+                    canInteract = conversation != null && currentUserProfile != null,
+                    isSending = isSending,
+                    isTrayOpen = isTrayOpen,
+                    onToggleTray = { isTrayOpen = !isTrayOpen },
+                    onPickPhoto = {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onOpenPoll = { showPollDialog = true },
+                    onSend = {
+                        val conv = conversation ?: return@IosMessageComposerBar
+                        val profile = currentUserProfile ?: return@IosMessageComposerBar
+                        if (draftText.trim().isEmpty()) return@IosMessageComposerBar
+                        haptics.success()
+                        viewModel.sendOrEditText(conv, profile, draftText) {
+                            draftText = ""
+                            isTrayOpen = false
+                        }
+                    },
+                    isRecordingAudio = isRecordingAudio,
+                    recordingSeconds = recordingSeconds,
+                    onStartVoiceRecord = requestStartVoiceRecording,
+                    onCancelVoiceRecord = {
+                        isRecordingAudio = false
+                        voiceRecorder.cancel()
+                    },
+                    onSendVoiceRecord = finishAndSendVoiceRecording
+                )
+            }
         }
     }
 
     selectedMessageForActions?.let { msg ->
+        val isPinned = conversation?.pinnedMessageId == msg.id
         MessageActionsDialog(
             message = msg,
             isOwnMessage = msg.senderId == viewModel.currentUserId,
+            isPinnedInChat = isPinned,
             onDismiss = { selectedMessageForActions = null },
             onReact = { emoji -> viewModel.toggleReaction(msg, emoji) },
             onReply = { viewModel.setReplyTarget(msg) },
             onEdit = { viewModel.setEditingTarget(msg) },
-            onDelete = { viewModel.deleteMessage(msg) }
+            onDelete = { viewModel.deleteMessage(msg) },
+            onCopy = {
+                clipboardManager.setText(AnnotatedString(msg.text))
+                Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
+            },
+            onForward = if (allConversations.isNotEmpty()) {
+                { messageToForward = msg }
+            } else null,
+            onTogglePin = conversation?.let { conv ->
+                {
+                    viewModel.pinOrUnpinMessage(conv, if (isPinned) null else msg) { pinned ->
+                        Toast.makeText(
+                            context,
+                            if (pinned) "Message pinned to top" else "Message unpinned",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        )
+    }
+
+    messageToForward?.let { original ->
+        val forwardTargets = remember(allConversations, conversation?.id) {
+            allConversations.filter { it.id != conversation?.id }
+        }
+        ForwardMessageDialog(
+            conversations = forwardTargets,
+            currentUserId = viewModel.currentUserId,
+            peopleMap = peopleMap,
+            onDismiss = { messageToForward = null },
+            onSelectConversation = { targetConv ->
+                val profile = currentUserProfile
+                messageToForward = null
+                if (profile != null) {
+                    viewModel.forwardMessage(targetConv, profile, original) {
+                        Toast.makeText(
+                            context,
+                            "Forwarded to ${targetConv.displayTitleFor(viewModel.currentUserId)}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
         )
     }
 
@@ -599,20 +895,74 @@ fun ChatRoomScreen(
             onDeleteChannel = {
                 showGroupInfoDialog = false
                 viewModel.deleteConversation(conversation, onDeleted = onBack)
-            }
+            },
+            photoMessages = photoMessages,
+            onOpenPhoto = { bmp, sender, caption ->
+                showGroupInfoDialog = false
+                lightboxState = Triple(bmp, sender, caption)
+            },
+            onTogglePin = { onTogglePinConversation(conversation) },
+            onToggleMute = { onToggleMuteConversation(conversation) }
         )
     }
 
     if (showDirectInfoDialog && conversation != null) {
+        val conv = conversation
+        val directTarget = if (!isSelfChat && otherId != null) {
+            CallTarget(
+                userId = otherId,
+                displayName = otherProfile?.displayName ?: conv.participantNames[otherId] ?: title,
+                photoUrl = otherProfile?.photoUrl ?: conv.participantPhotos[otherId],
+                conversationId = conv.id
+            )
+        } else null
+
         DirectChatInfoDialog(
-            conversation = conversation,
+            conversation = conv,
             otherProfile = otherProfile ?: currentUserProfile.takeIf { otherId == null || otherId == viewModel.currentUserId },
             currentUserId = viewModel.currentUserId,
             messageCount = messages.size,
             onDismiss = { showDirectInfoDialog = false },
             onDeleteConversation = {
                 showDirectInfoDialog = false
-                viewModel.deleteConversation(conversation, onDeleted = onBack)
+                viewModel.deleteConversation(conv, onDeleted = onBack)
+            },
+            onStartVoiceCall = directTarget?.let { target -> { onStartCall(target, false) } },
+            onStartVideoCall = directTarget?.let { target -> { onStartCall(target, true) } },
+            photoMessages = photoMessages,
+            onOpenPhoto = { bmp, sender, caption ->
+                showDirectInfoDialog = false
+                lightboxState = Triple(bmp, sender, caption)
+            },
+            onTogglePin = { onTogglePinConversation(conv) },
+            onToggleMute = { onToggleMuteConversation(conv) },
+            isOtherBlocked = isOtherBlocked,
+            onToggleBlock = otherId?.takeIf { !isSelfChat }?.let { targetUid ->
+                {
+                    onToggleBlockUser(targetUid, !isOtherBlocked)
+                }
+            }
+        )
+    }
+
+    val groupCallVideo = pendingGroupCallVideo
+    if (groupCallVideo != null && conversation != null) {
+        GroupCallMemberPickerDialog(
+            conversation = conversation,
+            currentUserId = viewModel.currentUserId,
+            isVideoCall = groupCallVideo,
+            onDismiss = { pendingGroupCallVideo = null },
+            onSelectMember = { memberId, memberName, memberPhoto ->
+                pendingGroupCallVideo = null
+                onStartCall(
+                    CallTarget(
+                        userId = memberId,
+                        displayName = memberName,
+                        photoUrl = memberPhoto,
+                        conversationId = conversation.id
+                    ),
+                    groupCallVideo
+                )
             }
         )
     }

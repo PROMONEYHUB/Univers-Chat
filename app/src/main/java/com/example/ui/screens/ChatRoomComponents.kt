@@ -35,8 +35,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WavingHand
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,11 +63,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.audio.formatDurationSec
 import com.example.ui.components.IosSearchField
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosBlue
 import com.example.ui.theme.IosIndigo
+import com.example.ui.theme.IosRed
 
 private val QuickRepliesList = listOf(
     "👋 Hey there!",
@@ -102,10 +109,88 @@ fun ChatRoomSearchBar(
 }
 
 @Composable
+fun PinnedMessageBanner(
+    senderName: String,
+    preview: String,
+    onJumpToPinned: () -> Unit,
+    onUnpin: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptics = rememberIosHaptics()
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable {
+                haptics.lightTap()
+                onJumpToPinned()
+            }
+            .testTag("pinned_message_banner")
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PushPin,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (senderName.isNotBlank()) "Pinned · $senderName" else "Pinned message",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = preview.ifBlank { "Attachment" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        haptics.lightTap()
+                        onUnpin()
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("unpin_message_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Unpin message",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
+}
+
+@Composable
 fun IosQuickInsertTray(
     visible: Boolean,
     onPickPhoto: () -> Unit,
     onCreatePoll: () -> Unit,
+    onRecordVoice: () -> Unit = {},
     onInsertQuickReply: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -189,6 +274,37 @@ fun IosQuickInsertTray(
                             }
                         }
                     }
+                    item(key = "tray_voice") {
+                        Surface(
+                            shape = CircleShape,
+                            color = IosRed.copy(alpha = 0.14f),
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable {
+                                    haptics.lightTap()
+                                    onRecordVoice()
+                                }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Mic,
+                                    contentDescription = null,
+                                    tint = IosRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Voice",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = IosRed,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                     items(QuickRepliesList) { snippet ->
                         Surface(
                             shape = CircleShape,
@@ -226,12 +342,18 @@ fun IosMessageComposerBar(
     onPickPhoto: () -> Unit,
     onOpenPoll: () -> Unit,
     onSend: () -> Unit,
+    isRecordingAudio: Boolean = false,
+    recordingSeconds: Int = 0,
+    onStartVoiceRecord: () -> Unit = {},
+    onCancelVoiceRecord: () -> Unit = {},
+    onSendVoiceRecord: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
-    val canSend = canInteract && draftText.trim().isNotEmpty() && !isSending
+    val hasDraftText = draftText.trim().isNotEmpty()
+    val canSendText = canInteract && hasDraftText && !isSending
     val sendScale by animateFloatAsState(
-        targetValue = if (canSend) 1f else 0.88f,
+        targetValue = if (canSendText || isRecordingAudio) 1f else 0.92f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "ios_send_scale"
     )
@@ -247,165 +369,261 @@ fun IosMessageComposerBar(
     ) {
         Column {
             HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                // iOS '+' Expandable Options Button
-                IconButton(
-                    onClick = {
-                        haptics.lightTap()
-                        onToggleTray()
-                    },
-                    enabled = canInteract && !isSending,
+            if (isRecordingAudio) {
+                Row(
                     modifier = Modifier
-                        .size(48.dp)
-                        .testTag("toggle_quick_tray_button")
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
+                    IconButton(
+                        onClick = {
+                            haptics.lightTap()
+                            onCancelVoiceRecord()
+                        },
                         modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isTrayOpen) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                        contentAlignment = Alignment.Center
+                            .size(48.dp)
+                            .testTag("cancel_voice_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = if (isTrayOpen) "Close quick options" else "Open quick options",
-                            tint = if (isTrayOpen) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer { rotationZ = plusRotation }
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Cancel voice recording",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
-                }
 
-                // Direct 1-tap Photo & Poll pills (compact & accessible)
-                IconButton(
-                    onClick = {
-                        haptics.lightTap()
-                        onPickPhoto()
-                    },
-                    enabled = canInteract && !isSending,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("attach_photo_button")
-                ) {
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
+                            .weight(1f)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(IosRed.copy(alpha = 0.12f))
+                            .border(0.8.dp, IosRed.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.AddPhotoAlternate,
-                            contentDescription = "Share photo",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            imageVector = Icons.Rounded.FiberManualRecord,
+                            contentDescription = null,
+                            tint = IosRed,
+                            modifier = Modifier.size(14.dp)
                         )
-                    }
-                }
-
-                IconButton(
-                    onClick = {
-                        haptics.lightTap()
-                        onOpenPoll()
-                    },
-                    enabled = canInteract && !isSending,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("create_poll_button")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Poll,
-                            contentDescription = "Create poll",
-                            tint = IosIndigo,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                // Sleek iMessage Borderless Capsule Input
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(vertical = 2.dp)
-                        .heightIn(min = 42.dp, max = 120.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                        .border(
-                            width = 0.8.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(22.dp)
-                        )
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (draftText.isEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "iMessage",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Recording voice… ${formatDurationSec(recordingSeconds)} / 0:30",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = IosRed
                         )
                     }
-                    BasicTextField(
-                        value = draftText,
-                        onValueChange = { onDraftChange(it.take(2000)) },
-                        maxLines = 4,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    FilledIconButton(
+                        onClick = {
+                            haptics.success()
+                            onSendVoiceRecord()
+                        },
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = Color.White
                         ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("message_composer_input")
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White,
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .graphicsLayer {
-                            scaleX = sendScale
-                            scaleY = sendScale
-                        }
-                        .testTag("send_message_button")
-                ) {
-                    if (isSending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
+                            .size(48.dp)
+                            .testTag("send_voice_button")
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.ArrowUpward,
-                            contentDescription = "Send message"
+                            contentDescription = "Send voice message"
                         )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    // iOS '+' Expandable Options Button
+                    IconButton(
+                        onClick = {
+                            haptics.lightTap()
+                            onToggleTray()
+                        },
+                        enabled = canInteract && !isSending,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("toggle_quick_tray_button")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isTrayOpen) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = if (isTrayOpen) "Close quick options" else "Open quick options",
+                                tint = if (isTrayOpen) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .graphicsLayer { rotationZ = plusRotation }
+                            )
+                        }
+                    }
+
+                    // Direct 1-tap Photo & Poll pills (compact & accessible)
+                    IconButton(
+                        onClick = {
+                            haptics.lightTap()
+                            onPickPhoto()
+                        },
+                        enabled = canInteract && !isSending,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("attach_photo_button")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AddPhotoAlternate,
+                                contentDescription = "Share photo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            haptics.lightTap()
+                            onOpenPoll()
+                        },
+                        enabled = canInteract && !isSending,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("create_poll_button")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Poll,
+                                contentDescription = "Create poll",
+                                tint = IosIndigo,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Sleek iMessage Borderless Capsule Input
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 2.dp)
+                            .heightIn(min = 42.dp, max = 120.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .border(
+                                width = 0.8.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(22.dp)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (draftText.isEmpty()) {
+                            Text(
+                                text = "Message",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        BasicTextField(
+                            value = draftText,
+                            onValueChange = { onDraftChange(it.take(2000)) },
+                            maxLines = 4,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("message_composer_input")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    if (hasDraftText || isSending) {
+                        FilledIconButton(
+                            onClick = onSend,
+                            enabled = canSendText,
+                            shape = CircleShape,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = Color.White,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .graphicsLayer {
+                                    scaleX = sendScale
+                                    scaleY = sendScale
+                                }
+                                .testTag("send_message_button")
+                        ) {
+                            if (isSending) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowUpward,
+                                    contentDescription = "Send message"
+                                )
+                            }
+                        }
+                    } else {
+                        FilledIconButton(
+                            onClick = {
+                                haptics.impactMedium()
+                                onStartVoiceRecord()
+                            },
+                            enabled = canInteract,
+                            shape = CircleShape,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("record_voice_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Mic,
+                                contentDescription = "Record voice message"
+                            )
+                        }
                     }
                 }
             }

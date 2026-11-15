@@ -27,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Public
@@ -104,6 +106,9 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     hasPhoneNotificationPermission: Boolean = true,
     onRequestNotificationPermission: () -> Unit = {},
+    blockedUserIds: Set<String> = emptySet(),
+    allPeople: List<UserProfile> = emptyList(),
+    onUnblockUser: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var displayName by remember(userProfile?.userId) { mutableStateOf(userProfile?.displayName.orEmpty()) }
@@ -127,6 +132,7 @@ fun ProfileScreen(
     val context = LocalContext.current
     val haptics = rememberIosHaptics()
     val clipboardManager = LocalClipboardManager.current
+    var showBlockedDialog by remember { mutableStateOf(false) }
     val readReceipts = privateUser?.readReceiptsEnabled ?: true
     val notifications = privateUser?.notificationsEnabled ?: true
 
@@ -476,6 +482,52 @@ fun ProfileScreen(
                         )
                     }
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            haptics.lightTap()
+                            showBlockedDialog = true
+                        }
+                        .padding(vertical = 6.dp)
+                        .testTag("manage_blocked_users_row"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(MaterialTheme.colorScheme.error),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Block,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Blocked Contacts",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (blockedUserIds.isEmpty()) "No blocked contacts" else "${blockedUserIds.size} blocked",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = "Manage blocked contacts",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -505,6 +557,15 @@ fun ProfileScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    if (showBlockedDialog) {
+        BlockedUsersDialog(
+            blockedUserIds = blockedUserIds,
+            allPeople = allPeople,
+            onDismiss = { showBlockedDialog = false },
+            onUnblockUser = onUnblockUser
+        )
     }
 }
 

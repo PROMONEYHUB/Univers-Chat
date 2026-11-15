@@ -35,6 +35,7 @@ service cloud.firestore {
              data.email is string && data.email.size() >= 3 && data.email.size() <= 320 &&
              (!('readReceiptsEnabled' in data) || data.readReceiptsEnabled is bool) &&
              (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
+             (!('blockedUserIds' in data) || data.blockedUserIds == null || (data.blockedUserIds is list && data.blockedUserIds.size() <= 100 && (data.blockedUserIds.size() == 0 || data.blockedUserIds[0] is string))) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
@@ -67,9 +68,14 @@ service cloud.firestore {
              (!('lastMessageText' in data) || data.lastMessageText == null || (data.lastMessageText is string && data.lastMessageText.size() <= 300)) &&
              (!('lastMessageSenderId' in data) || data.lastMessageSenderId == null || (data.lastMessageSenderId is string && data.lastMessageSenderId.size() <= 128)) &&
              (!('lastMessageSenderName' in data) || data.lastMessageSenderName == null || (data.lastMessageSenderName is string && data.lastMessageSenderName.size() <= 60)) &&
-             (!('lastMessageType' in data) || data.lastMessageType == null || (data.lastMessageType in ['text', 'image', 'poll', ''])) &&
+             (!('lastMessageType' in data) || data.lastMessageType == null || (data.lastMessageType in ['text', 'image', 'poll', 'audio', ''])) &&
              (!('lastMessageAt' in data) || data.lastMessageAt == null || isValidTimestamp(data.lastMessageAt)) &&
              (!('unreadCounts' in data) || data.unreadCounts == null || (data.unreadCounts is map && data.unreadCounts.size() <= 50)) &&
+             (!('pinnedBy' in data) || data.pinnedBy == null || (data.pinnedBy is map && data.pinnedBy.size() <= 50)) &&
+             (!('mutedBy' in data) || data.mutedBy == null || (data.mutedBy is map && data.mutedBy.size() <= 50)) &&
+             (!('pinnedMessageId' in data) || data.pinnedMessageId == null || (data.pinnedMessageId is string && data.pinnedMessageId.size() <= 128)) &&
+             (!('pinnedMessagePreview' in data) || data.pinnedMessagePreview == null || (data.pinnedMessagePreview is string && data.pinnedMessagePreview.size() <= 200)) &&
+             (!('pinnedMessageSenderName' in data) || data.pinnedMessageSenderName == null || (data.pinnedMessageSenderName is string && data.pinnedMessageSenderName.size() <= 60)) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
@@ -83,9 +89,13 @@ service cloud.firestore {
              data.participantIds.size() >= 1 &&
              data.participantIds.size() <= 50 &&
              data.participantIds[0] is string &&
-             data.type in ['text', 'image', 'poll'] &&
+             data.type in ['text', 'image', 'poll', 'audio'] &&
              data.text is string && data.text.size() <= 2000 &&
              (!('imageBase64' in data) || data.imageBase64 == null || (data.imageBase64 is string && data.imageBase64.size() <= 80000)) &&
+             (!('audioBase64' in data) || data.audioBase64 == null || (data.audioBase64 is string && data.audioBase64.size() <= 95000)) &&
+             (!('audioDurationSec' in data) || data.audioDurationSec == null || (data.audioDurationSec is int && data.audioDurationSec >= 0 && data.audioDurationSec <= 180)) &&
+             (data.type != 'audio' || (data.audioBase64 is string && data.audioBase64.size() >= 16)) &&
+             (!('isForwarded' in data) || data.isForwarded == null || data.isForwarded is bool) &&
              (!('replyToMessageId' in data) || data.replyToMessageId == null || (data.replyToMessageId is string && data.replyToMessageId.size() <= 128)) &&
              (!('replyToSenderName' in data) || data.replyToSenderName == null || (data.replyToSenderName is string && data.replyToSenderName.size() <= 60)) &&
              (!('replyToPreview' in data) || data.replyToPreview == null || (data.replyToPreview is string && data.replyToPreview.size() <= 160)) &&
@@ -145,7 +155,7 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll(['userId', 'email', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'createdAt', 'updatedAt']) &&
                        isValidPrivateUser(incoming());
 
       allow update: if isSignedIn() &&
@@ -154,7 +164,7 @@ service cloud.firestore {
                        isValidPrivateUser(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'updatedAt']);
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
@@ -204,7 +214,9 @@ service cloud.firestore {
                          'type', 'title', 'topic', 'createdBy', 'participantIds',
                          'participantNames', 'participantPhotos', 'lastMessageText',
                          'lastMessageSenderId', 'lastMessageSenderName', 'lastMessageType',
-                         'lastMessageAt', 'unreadCounts', 'createdAt', 'updatedAt'
+                         'lastMessageAt', 'unreadCounts', 'pinnedBy', 'mutedBy',
+                         'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName',
+                         'createdAt', 'updatedAt'
                        ]) &&
                        isValidConversation(incoming());
 
@@ -238,6 +250,16 @@ service cloud.firestore {
                           incoming().diff(existing()).affectedKeys().hasOnly([
                             'participantIds', 'participantNames', 'participantPhotos',
                             'unreadCounts', 'updatedAt'
+                          ])) ||
+                         // Action 5: Participant pins or mutes thread or adjusts unread state
+                         (incoming().participantIds == existing().participantIds &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'pinnedBy', 'mutedBy', 'unreadCounts', 'updatedAt'
+                          ])) ||
+                         // Action 6: Participant pins or unpins a message in thread
+                         (incoming().participantIds == existing().participantIds &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName', 'updatedAt'
                           ]))
                        );
 
@@ -266,6 +288,7 @@ service cloud.firestore {
                          incoming().keys().hasOnly([
                            'conversationId', 'senderId', 'senderName', 'senderPhotoUrl',
                            'participantIds', 'type', 'text', 'imageBase64',
+                           'audioBase64', 'audioDurationSec', 'isForwarded',
                            'replyToMessageId', 'replyToSenderName', 'replyToPreview',
                            'reactions', 'pollQuestion', 'pollOptions', 'pollVotes',
                            'isEdited', 'createdAt', 'updatedAt'

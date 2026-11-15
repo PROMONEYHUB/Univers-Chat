@@ -27,11 +27,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,10 +56,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.audio.VoicePlaybackState
+import com.example.audio.formatDurationSec
 import com.example.data.model.Message
 import com.example.ui.components.ImageUtils
 import com.example.ui.components.UserAvatar
@@ -79,6 +87,8 @@ fun MessageBubble(
     onToggleReaction: (String) -> Unit,
     onVotePoll: (Int) -> Unit,
     onOpenImage: ((Bitmap) -> Unit)? = null,
+    voicePlaybackState: VoicePlaybackState = VoicePlaybackState(),
+    onToggleVoicePlayback: ((Message) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
@@ -172,6 +182,27 @@ fun MessageBubble(
                     )
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    if (message.isForwarded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Forward,
+                                contentDescription = null,
+                                tint = subtleColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Forwarded",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = subtleColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
                     if (!message.replyToPreview.isNullOrBlank()) {
                         Row(
                             modifier = Modifier
@@ -257,21 +288,37 @@ fun MessageBubble(
                         }
                     }
 
-                    if (message.type == Message.TYPE_POLL) {
-                        PollBubbleContent(
-                            message = message,
-                            currentUserId = currentUserId,
-                            isOwnMessage = isOwnMessage,
-                            textColor = textColor,
-                            subtleColor = subtleColor,
-                            onVotePoll = onVotePoll
-                        )
-                    } else if (message.text.isNotBlank()) {
-                        Text(
-                            text = message.text,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = textColor
-                        )
+                    when {
+                        message.type == Message.TYPE_AUDIO -> {
+                            VoiceMessageBubbleContent(
+                                message = message,
+                                isOwnMessage = isOwnMessage,
+                                textColor = textColor,
+                                subtleColor = subtleColor,
+                                playbackState = voicePlaybackState,
+                                onTogglePlay = {
+                                    haptics.lightTap()
+                                    onToggleVoicePlayback?.invoke(message)
+                                }
+                            )
+                        }
+                        message.type == Message.TYPE_POLL -> {
+                            PollBubbleContent(
+                                message = message,
+                                currentUserId = currentUserId,
+                                isOwnMessage = isOwnMessage,
+                                textColor = textColor,
+                                subtleColor = subtleColor,
+                                onVotePoll = onVotePoll
+                            )
+                        }
+                        message.text.isNotBlank() -> {
+                            Text(
+                                text = message.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = textColor
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -457,16 +504,100 @@ private fun PollBubbleContent(
 }
 
 @Composable
+private fun VoiceMessageBubbleContent(
+    message: Message,
+    isOwnMessage: Boolean,
+    textColor: Color,
+    subtleColor: Color,
+    playbackState: VoicePlaybackState,
+    onTogglePlay: () -> Unit
+) {
+    val isThisMessage = playbackState.activeMessageId == message.id
+    val isPlaying = isThisMessage && playbackState.isPlaying
+    val targetProgress = if (isThisMessage) playbackState.progress else 0f
+    val animatedProgress by animateFloatAsState(targetValue = targetProgress, label = "voice_progress")
+    val displaySec = if (isThisMessage && playbackState.positionSec > 0) {
+        playbackState.positionSec
+    } else {
+        message.audioDurationSec.coerceAtLeast(1)
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .widthIn(min = 196.dp, max = 260.dp)
+            .padding(vertical = 2.dp)
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = if (isOwnMessage) Color.White.copy(alpha = 0.24f) else MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable(
+                    enabled = !message.audioBase64.isNullOrBlank(),
+                    onClick = onTogglePlay
+                )
+                .testTag("play_voice_${message.id}")
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause voice message" else "Play voice message",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                color = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary,
+                trackColor = if (isOwnMessage) Color.White.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape)
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Voice note",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor
+                )
+                Text(
+                    text = formatDurationSec(displaySec),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = subtleColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun MessageActionsDialog(
     message: Message,
     isOwnMessage: Boolean,
+    isPinnedInChat: Boolean = false,
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onReply: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onCopy: (() -> Unit)? = null,
+    onForward: (() -> Unit)? = null,
+    onTogglePin: (() -> Unit)? = null
 ) {
     val haptics = rememberIosHaptics()
+    val hasCopyableText = message.text.isNotBlank() && message.type != Message.TYPE_AUDIO
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
@@ -523,6 +654,42 @@ fun MessageActionsDialog(
                         onDismiss()
                     }
                 )
+
+                if (hasCopyableText && onCopy != null) {
+                    ActionRow(
+                        icon = Icons.Rounded.ContentCopy,
+                        label = "Copy text",
+                        onClick = {
+                            haptics.lightTap()
+                            onCopy()
+                            onDismiss()
+                        }
+                    )
+                }
+
+                if (onForward != null) {
+                    ActionRow(
+                        icon = Icons.AutoMirrored.Rounded.Forward,
+                        label = "Forward",
+                        onClick = {
+                            haptics.lightTap()
+                            onForward()
+                            onDismiss()
+                        }
+                    )
+                }
+
+                if (onTogglePin != null) {
+                    ActionRow(
+                        icon = Icons.Rounded.PushPin,
+                        label = if (isPinnedInChat) "Unpin from chat" else "Pin in chat",
+                        onClick = {
+                            haptics.selectionTick()
+                            onTogglePin()
+                            onDismiss()
+                        }
+                    )
+                }
 
                 if (isOwnMessage && message.type == Message.TYPE_TEXT) {
                     ActionRow(

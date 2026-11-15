@@ -22,12 +22,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.PersonSearch
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,11 +64,13 @@ fun PeopleScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onMessagePerson: (UserProfile) -> Unit,
+    onCallPerson: (person: UserProfile, isVideoCall: Boolean) -> Unit = { _, _ -> },
+    blockedUserIds: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
-    val memberCount = remember(allPeople, currentUserId) {
-        allPeople.count { it.userId != currentUserId }
+    val memberCount = remember(allPeople, currentUserId, blockedUserIds) {
+        allPeople.count { it.userId != currentUserId && it.userId !in blockedUserIds }
     }
 
     Column(
@@ -139,9 +145,9 @@ fun PeopleScreen(
             }
 
             is UiState.Success -> {
-                val others = remember(peopleState.data, searchQuery, currentUserId) {
+                val others = remember(peopleState.data, searchQuery, currentUserId, blockedUserIds) {
                     peopleState.data
-                        .filter { it.userId != currentUserId }
+                        .filter { it.userId != currentUserId && it.userId !in blockedUserIds }
                         .filter {
                             searchQuery.isBlank() ||
                                 it.displayName.contains(searchQuery, ignoreCase = true) ||
@@ -231,7 +237,9 @@ fun PeopleScreen(
                                         GroupedPersonRow(
                                             profile = person,
                                             showBottomDivider = index < others.lastIndex,
-                                            onMessageClick = { onMessagePerson(person) }
+                                            onMessageClick = { onMessagePerson(person) },
+                                            onVoiceCallClick = { onCallPerson(person, false) },
+                                            onVideoCallClick = { onCallPerson(person, true) }
                                         )
                                     }
                                 }
@@ -337,7 +345,9 @@ private fun SavedNotesBannerCard(
 private fun GroupedPersonRow(
     profile: UserProfile,
     showBottomDivider: Boolean,
-    onMessageClick: () -> Unit
+    onMessageClick: () -> Unit,
+    onVoiceCallClick: () -> Unit,
+    onVideoCallClick: () -> Unit
 ) {
     val haptics = rememberIosHaptics()
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -425,28 +435,65 @@ private fun GroupedPersonRow(
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            FilledTonalButton(
-                onClick = {
-                    haptics.lightTap()
-                    onMessageClick()
-                },
-                shape = CircleShape,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                modifier = Modifier.testTag("message_person_${profile.userId}")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Chat", style = MaterialTheme.typography.labelLarge)
+                FilledTonalIconButton(
+                    onClick = {
+                        haptics.lightTap()
+                        onVoiceCallClick()
+                    },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.testTag("voice_call_person_${profile.userId}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Call,
+                        contentDescription = "HD voice call ${profile.displayName}",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                FilledTonalIconButton(
+                    onClick = {
+                        haptics.lightTap()
+                        onVideoCallClick()
+                    },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.testTag("video_call_person_${profile.userId}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Videocam,
+                        contentDescription = "HD video call ${profile.displayName}",
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                FilledTonalIconButton(
+                    onClick = {
+                        haptics.lightTap()
+                        onMessageClick()
+                    },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.testTag("message_person_${profile.userId}")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = "Chat with ${profile.displayName}",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 

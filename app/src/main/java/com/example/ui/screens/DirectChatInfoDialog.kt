@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -7,19 +8,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.data.model.Conversation
+import com.example.data.model.Message
 import com.example.data.model.UserProfile
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
@@ -56,7 +68,15 @@ fun DirectChatInfoDialog(
     currentUserId: String,
     messageCount: Int,
     onDismiss: () -> Unit,
-    onDeleteConversation: () -> Unit
+    onDeleteConversation: () -> Unit,
+    onStartVoiceCall: (() -> Unit)? = null,
+    onStartVideoCall: (() -> Unit)? = null,
+    photoMessages: List<Message> = emptyList(),
+    onOpenPhoto: (Bitmap, String, String) -> Unit = { _, _, _ -> },
+    onTogglePin: () -> Unit = {},
+    onToggleMute: () -> Unit = {},
+    isOtherBlocked: Boolean = false,
+    onToggleBlock: (() -> Unit)? = null
 ) {
     val haptics = rememberIosHaptics()
     var confirmDelete by remember { mutableStateOf(false) }
@@ -81,7 +101,9 @@ fun DirectChatInfoDialog(
                 )
         ) {
             Column(
-                modifier = Modifier.padding(22.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
@@ -243,8 +265,145 @@ fun DirectChatInfoDialog(
                     )
                 }
 
+                if (!isSelfChat && !isOtherBlocked && (onStartVoiceCall != null || onStartVideoCall != null)) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (onStartVoiceCall != null) {
+                            FilledTonalButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    onDismiss()
+                                    onStartVoiceCall()
+                                },
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .testTag("dialog_voice_call_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Call,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("HD Voice", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        if (onStartVideoCall != null) {
+                            FilledTonalButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    onDismiss()
+                                    onStartVideoCall()
+                                },
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .testTag("dialog_video_call_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Videocam,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("HD Video", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                val isPinned = conversation.isPinnedBy(currentUserId)
+                val isMuted = conversation.isMutedBy(currentUserId)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptics.selectionTick()
+                            onTogglePin()
+                        },
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp)
+                            .testTag("direct_info_pin_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PushPin,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isPinned) "Unpin" else "Pin", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            haptics.selectionTick()
+                            onToggleMute()
+                        },
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp)
+                            .testTag("direct_info_mute_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isMuted) "Unmute" else "Mute", maxLines = 1)
+                    }
+                }
+
+                if (photoMessages.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    SharedPhotosStrip(
+                        photoMessages = photoMessages,
+                        onOpenPhoto = onOpenPhoto
+                    )
+                }
+
+                if (!isSelfChat && onToggleBlock != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            haptics.impactMedium()
+                            onToggleBlock()
+                        },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (isOtherBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 48.dp)
+                            .testTag("block_user_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Block,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isOtherBlocked) "Unblock Contact" else "Block Contact",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
                 if (canDelete) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     if (!confirmDelete) {
                         OutlinedButton(
                             onClick = {

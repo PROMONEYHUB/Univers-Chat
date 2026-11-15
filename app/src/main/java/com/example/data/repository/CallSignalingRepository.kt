@@ -73,6 +73,21 @@ class CallSignalingRepository(
         )
     }
 
+    fun observeCallHistory(userId: String): Flow<List<CallSession>> = flow {
+        val uid = requireUserId()
+        emitAll(
+            db.collection(CALLS_COLLECTION)
+                .whereArrayContains("participantIds", userId)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(CallSession::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        .sortedByDescending { (it.createdAt ?: Timestamp(0, 0)).toDate().time }
+                        .take(40)
+                }
+                .logFirestoreErrors(OperationType.LIST, CALLS_COLLECTION, uid)
+        )
+    }
+
     fun observeCallSession(callId: String): Flow<CallSession?> = flow {
         val uid = requireUserId()
         val path = "$CALLS_COLLECTION/$callId"

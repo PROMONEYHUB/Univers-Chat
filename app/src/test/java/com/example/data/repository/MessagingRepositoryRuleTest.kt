@@ -253,6 +253,106 @@ class MessagingRepositoryRuleTest : FirestoreEmulatorTestBase() {
     }
 
     @Test
+    fun socialMessagingOptions_voiceForwardPinMuteBlock_succeedAndPersist() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val aliceRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val aliceProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeUserProfile(aliceUid).first { it != null }!!
+        }
+
+        val bobUid = signInTestUser(BOB_EMAIL)
+        val bobRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val bobProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeUserProfile(bobUid).first { it != null }!!
+        }
+
+        signInTestUser(ALICE_EMAIL)
+        val dmId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.getOrCreateDirectConversation(aliceProfile, bobProfile).getOrThrow()
+        }
+        val notesId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.getOrCreateDirectConversation(aliceProfile, aliceProfile).getOrThrow()
+        }
+        val dmConv = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first { it != null }!!
+        }
+        val notesConv = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(notesId).first { it != null }!!
+        }
+
+        // Send a voice note into DM
+        val fakeAudioBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.sendVoiceMessage(dmConv, aliceProfile, fakeAudioBase64, 5).getOrThrow()
+        }
+        val dmMessages = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeMessages(dmId, aliceUid).first { list -> list.any { it.type == com.example.data.model.Message.TYPE_AUDIO } }
+        }
+        val voiceMsg = dmMessages.first { it.type == com.example.data.model.Message.TYPE_AUDIO }
+        assertEquals(5, voiceMsg.audioDurationSec)
+
+        // Forward that voice note to Personal Notes
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.forwardMessage(notesConv, aliceProfile, voiceMsg).getOrThrow()
+        }
+        val notesMessages = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeMessages(notesId, aliceUid).first { list -> list.any { it.isForwarded } }
+        }
+        assertTrue(notesMessages.any { it.isForwarded && it.type == com.example.data.model.Message.TYPE_AUDIO })
+
+        // Pin message inside DM
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.pinMessage(dmId, voiceMsg).getOrThrow()
+        }
+        val pinnedConv = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first { it?.pinnedMessageId == voiceMsg.id }!!
+        }
+        assertEquals(voiceMsg.id, pinnedConv.pinnedMessageId)
+
+        // Pin & Mute conversation & Mark Unread
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            assertTrue(aliceRepo.togglePinConversation(pinnedConv).getOrThrow())
+        }
+        val afterPin = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first { it?.isPinnedBy(aliceUid) == true }!!
+        }
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            assertTrue(aliceRepo.toggleMuteConversation(afterPin).getOrThrow())
+            assertTrue(aliceRepo.toggleMarkUnread(afterPin).getOrThrow())
+        }
+        val afterFlags = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first {
+                it != null && it.isMutedBy(aliceUid) && it.unreadCountFor(aliceUid) == 1L
+            }!!
+        }
+        assertTrue(afterFlags.isMutedBy(aliceUid))
+        assertTrue(afterFlags.isPinnedBy(aliceUid))
+
+        // Block & Unblock Bob
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.setUserBlocked(bobUid, true).getOrThrow()
+        }
+        val blockedPrivate = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observePrivateUser(aliceUid).first { it != null && bobUid in it.blockedUserIds }!!
+        }
+        assertTrue(bobUid in blockedPrivate.blockedUserIds)
+
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.setUserBlocked(bobUid, false).getOrThrow()
+        }
+        val unblockedPrivate = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observePrivateUser(aliceUid).first { it != null && bobUid !in it.blockedUserIds }!!
+        }
+        assertFalse(bobUid in unblockedPrivate.blockedUserIds)
+    }
+
+    @Test
     fun observeConversations_unauthenticatedUser_throwsIllegalStateOrPermissionDenied() = runBlocking {
         auth.signOut()
         val repo = MessagingRepository(firestore, auth)

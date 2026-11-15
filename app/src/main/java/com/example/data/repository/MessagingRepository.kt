@@ -78,6 +78,7 @@ class MessagingRepository(
                     "email" to email.take(320),
                     "readReceiptsEnabled" to true,
                     "notificationsEnabled" to true,
+                    "blockedUserIds" to emptyList<String>(),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -196,9 +197,12 @@ class MessagingRepository(
                 .snapshots()
                 .map { snapshot ->
                     snapshot.toObjects(Conversation::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                        .sortedByDescending {
-                            (it.lastMessageAt ?: it.updatedAt ?: it.createdAt ?: Timestamp(0, 0)).toDate().time
-                        }
+                        .sortedWith(
+                            compareByDescending<Conversation> { it.isPinnedBy(userId) }
+                                .thenByDescending {
+                                    (it.lastMessageAt ?: it.updatedAt ?: it.createdAt ?: Timestamp(0, 0)).toDate().time
+                                }
+                        )
                 }
                 .logFirestoreErrors(OperationType.LIST, CONVERSATIONS_COLLECTION, uid)
         )
@@ -310,6 +314,40 @@ class MessagingRepository(
         }
     }
 
+    suspend fun setUserBlocked(
+        targetUserId: String,
+        blocked: Boolean
+    ): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        require(targetUserId.isNotBlank() && targetUserId != uid) { "Invalid user to block." }
+        val docRef = db.collection(USERS_COLLECTION).document(uid)
+        try {
+            val snap = docRef.get().await()
+            val currentBlocked = (snap.get("blockedUserIds") as? List<*>)
+                ?.filterIsInstance<String>()
+                ?.toMutableList()
+                ?: mutableListOf()
+            if (blocked) {
+                if (targetUserId !in currentBlocked && currentBlocked.size < 100) {
+                    currentBlocked.add(targetUserId)
+                }
+            } else {
+                currentBlocked.removeAll { it == targetUserId }
+            }
+            docRef.update(
+                mapOf(
+                    "blockedUserIds" to currentBlocked,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
+            throw e
+        }
+    }
+
     suspend fun getOrCreateDirectConversation(
         currentProfile: UserProfile,
         otherProfile: UserProfile
@@ -348,6 +386,8 @@ class MessagingRepository(
                     "lastMessageType" to "",
                     "lastMessageAt" to FieldValue.serverTimestamp(),
                     "unreadCounts" to unreadCounts,
+                    "pinnedBy" to emptyMap<String, Boolean>(),
+                    "mutedBy" to emptyMap<String, Boolean>(),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -394,6 +434,8 @@ class MessagingRepository(
             "lastMessageType" to Message.TYPE_TEXT,
             "lastMessageAt" to FieldValue.serverTimestamp(),
             "unreadCounts" to unreadCounts,
+            "pinnedBy" to emptyMap<String, Boolean>(),
+            "mutedBy" to emptyMap<String, Boolean>(),
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
@@ -478,6 +520,112 @@ class MessagingRepository(
         )
     }
 
+    suspend fun sendVoiceMessage(
+        conversation: Conversation,
+        senderProfile: UserProfile,
+        audioBase64: String,
+        durationSec: Int,
+        replyTo: Message? = null
+    ): Result<Unit> = runCatching {
+        require(audioBase64.length in 16..95_000) { "Voice message exceeds allowed limit." }
+        val safeSec = durationSec.coerceIn(1, 180)
+        val formatted = "%d:%02d".format(safeSec / 60, safeSec % 60)
+        val label = "Voice message ($formatted)"
+        sendMessageInternal(
+            conversation = conversation,
+            senderProfile = senderProfile,
+            type = Message.TYPE_AUDIO,
+            text = label,
+            previewText = "🎤 $label",
+            imageBase64 = null,
+            audioBase64 = audioBase64,
+            audioDurationSec = safeSec,
+            replyTo = replyTo,
+            pollQuestion = null,
+            pollOptions = null
+        )
+    }
+
+    suspend fun forwardMessage(
+        targetConversation: Conversation,
+        senderProfile: UserProfile,
+        original: Message
+    ): Result<Unit> = runCatching {
+        when (original.type) {
+            Message.TYPE_IMAGE -> {
+                val img = original.imageBase64?.takeIf { it.isNotBlank() }
+                    ?: error("Photo unavailable to forward.")
+                val preview = if (original.text.isNotBlank()) "↪ 📷 ${original.text}".take(300) else "↪ 📷 Forwarded photo"
+                sendMessageInternal(
+                    conversation = targetConversation,
+                    senderProfile = senderProfile,
+                    type = Message.TYPE_IMAGE,
+                    text = original.text.take(2000),
+                    previewText = preview,
+                    imageBase64 = img,
+                    isForwarded = true
+                )
+            }
+            Message.TYPE_AUDIO -> {
+                val audio = original.audioBase64?.takeIf { it.length >= 16 }
+                    ?: error("Voice note unavailable to forward.")
+                val safeSec = original.audioDurationSec.coerceIn(1, 180)
+                val label = original.text.ifBlank { "Voice message" }
+                sendMessageInternal(
+                    conversation = targetConversation,
+                    senderProfile = senderProfile,
+                    type = Message.TYPE_AUDIO,
+                    text = label,
+                    previewText = "↪ 🎤 $label".take(300),
+                    imageBase64 = null,
+                    audioBase64 = audio,
+                    audioDurationSec = safeSec,
+                    isForwarded = true
+                )
+            }
+            Message.TYPE_POLL -> {
+                val q = original.pollQuestion ?: original.text
+                val opts = original.pollOptions
+                if (opts.size >= 2) {
+                    sendMessageInternal(
+                        conversation = targetConversation,
+                        senderProfile = senderProfile,
+                        type = Message.TYPE_POLL,
+                        text = q.take(200),
+                        previewText = "↪ 📊 $q".take(300),
+                        imageBase64 = null,
+                        pollQuestion = q.take(200),
+                        pollOptions = opts,
+                        isForwarded = true
+                    )
+                } else {
+                    sendMessageInternal(
+                        conversation = targetConversation,
+                        senderProfile = senderProfile,
+                        type = Message.TYPE_TEXT,
+                        text = q.take(2000),
+                        previewText = "↪ $q".take(300),
+                        imageBase64 = null,
+                        isForwarded = true
+                    )
+                }
+            }
+            else -> {
+                val clean = original.text.trim().take(2000)
+                require(clean.isNotEmpty()) { "Nothing to forward." }
+                sendMessageInternal(
+                    conversation = targetConversation,
+                    senderProfile = senderProfile,
+                    type = Message.TYPE_TEXT,
+                    text = clean,
+                    previewText = "↪ $clean".take(300),
+                    imageBase64 = null,
+                    isForwarded = true
+                )
+            }
+        }
+    }
+
     private suspend fun sendMessageInternal(
         conversation: Conversation,
         senderProfile: UserProfile,
@@ -485,9 +633,12 @@ class MessagingRepository(
         text: String,
         previewText: String,
         imageBase64: String?,
-        replyTo: Message?,
-        pollQuestion: String?,
-        pollOptions: List<String>?
+        audioBase64: String? = null,
+        audioDurationSec: Int? = null,
+        isForwarded: Boolean = false,
+        replyTo: Message? = null,
+        pollQuestion: String? = null,
+        pollOptions: List<String>? = null
     ) {
         val uid = requireUserId()
         require(conversation.id.isNotBlank()) { "Conversation ID is required." }
@@ -508,8 +659,15 @@ class MessagingRepository(
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        if (isForwarded) {
+            messagePayload["isForwarded"] = true
+        }
         if (!imageBase64.isNullOrBlank()) {
             messagePayload["imageBase64"] = imageBase64
+        }
+        if (!audioBase64.isNullOrBlank()) {
+            messagePayload["audioBase64"] = audioBase64
+            messagePayload["audioDurationSec"] = (audioDurationSec ?: 1).coerceIn(0, 180)
         }
         if (replyTo != null && replyTo.id.isNotBlank()) {
             messagePayload["replyToMessageId"] = replyTo.id.take(128)
@@ -517,6 +675,7 @@ class MessagingRepository(
             val replyPreview = when (replyTo.type) {
                 Message.TYPE_IMAGE -> if (replyTo.text.isNotBlank()) "📷 ${replyTo.text}" else "📷 Photo"
                 Message.TYPE_POLL -> "📊 ${replyTo.pollQuestion ?: replyTo.text}"
+                Message.TYPE_AUDIO -> "🎤 ${replyTo.text}"
                 else -> replyTo.text
             }.take(160)
             messagePayload["replyToPreview"] = replyPreview
@@ -673,6 +832,110 @@ class MessagingRepository(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, convRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun toggleMarkUnread(conversation: Conversation): Result<Boolean> = runCatching {
+        val uid = requireUserId()
+        val currentlyUnread = (conversation.unreadCounts[uid] ?: 0L) > 0L
+        val targetCount = if (currentlyUnread) 0L else 1L
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
+        val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
+            this[uid] = targetCount
+        }
+        try {
+            convRef.update(
+                mapOf(
+                    "unreadCounts" to updatedUnread,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            !currentlyUnread
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, convRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun togglePinConversation(conversation: Conversation): Result<Boolean> = runCatching {
+        val uid = requireUserId()
+        val nowPinned = !conversation.isPinnedBy(uid)
+        val updatedPinned = conversation.pinnedBy.toMutableMap().apply {
+            if (nowPinned) this[uid] = true else remove(uid)
+        }
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
+        try {
+            convRef.update(
+                mapOf(
+                    "pinnedBy" to updatedPinned,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            nowPinned
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, convRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun toggleMuteConversation(conversation: Conversation): Result<Boolean> = runCatching {
+        val uid = requireUserId()
+        val nowMuted = !conversation.isMutedBy(uid)
+        val updatedMuted = conversation.mutedBy.toMutableMap().apply {
+            if (nowMuted) this[uid] = true else remove(uid)
+        }
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
+        try {
+            convRef.update(
+                mapOf(
+                    "mutedBy" to updatedMuted,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            nowMuted
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, convRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun pinMessage(conversationId: String, message: Message?): Result<Unit> = runCatching {
+        requireUserId()
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversationId)
+        val preview = when (message?.type) {
+            Message.TYPE_IMAGE -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 Photo"
+            Message.TYPE_POLL -> "📊 ${message.pollQuestion ?: message.text}"
+            Message.TYPE_AUDIO -> "🎤 ${message.text}"
+            else -> message?.text.orEmpty()
+        }.take(200)
+        val updates = if (message == null) {
+            mapOf<String, Any>(
+                "pinnedMessageId" to "",
+                "pinnedMessagePreview" to "",
+                "pinnedMessageSenderName" to "",
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        } else {
+            mapOf<String, Any>(
+                "pinnedMessageId" to message.id.take(128),
+                "pinnedMessagePreview" to preview,
+                "pinnedMessageSenderName" to message.senderName.take(60),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        }
+        try {
+            convRef.update(updates).await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

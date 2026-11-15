@@ -22,16 +22,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -61,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.Conversation
+import com.example.data.model.Message
 import com.example.data.model.UserProfile
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.rememberIosHaptics
@@ -276,7 +284,11 @@ fun GroupInfoDialog(
     onUpdateGroupInfo: (title: String, topic: String) -> Unit,
     onAddMembers: (List<UserProfile>) -> Unit,
     onLeaveGroup: () -> Unit,
-    onDeleteChannel: (() -> Unit)? = null
+    onDeleteChannel: (() -> Unit)? = null,
+    photoMessages: List<Message> = emptyList(),
+    onOpenPhoto: (Bitmap, String, String) -> Unit = { _, _, _ -> },
+    onTogglePin: () -> Unit = {},
+    onToggleMute: () -> Unit = {}
 ) {
     val haptics = rememberIosHaptics()
     var title by remember(conversation.id) { mutableStateOf(conversation.title) }
@@ -302,7 +314,11 @@ fun GroupInfoDialog(
                     shape = MaterialTheme.shapes.extraLarge
                 )
         ) {
-            Column(modifier = Modifier.padding(22.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -366,6 +382,51 @@ fun GroupInfoDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Save Channel Details")
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    val isPinned = conversation.isPinnedBy(currentUserId)
+                    val isMuted = conversation.isMutedBy(currentUserId)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                haptics.selectionTick()
+                                onTogglePin()
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isPinned) "Unpin" else "Pin", maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                haptics.selectionTick()
+                                onToggleMute()
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isMuted) "Unmute" else "Mute", maxLines = 1)
+                        }
+                    }
+
+                    if (photoMessages.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        SharedPhotosStrip(
+                            photoMessages = photoMessages,
+                            onOpenPhoto = onOpenPhoto
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -529,6 +590,119 @@ fun GroupInfoDialog(
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             Text("Add Selected")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GroupCallMemberPickerDialog(
+    conversation: Conversation,
+    currentUserId: String,
+    isVideoCall: Boolean,
+    onDismiss: () -> Unit,
+    onSelectMember: (memberId: String, memberName: String, memberPhoto: String?) -> Unit
+) {
+    val haptics = rememberIosHaptics()
+    val callableMemberIds = remember(conversation.participantIds, currentUserId) {
+        conversation.participantIds.filter { it != currentUserId }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = MaterialTheme.shapes.extraLarge
+                )
+        ) {
+            Column(modifier = Modifier.padding(22.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isVideoCall) Icons.Rounded.Videocam else Icons.Rounded.Call,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (isVideoCall) "Start HD Video Call" else "Start HD Voice Call",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close call picker")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Select a channel member to ring",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (callableMemberIds.isEmpty()) {
+                    Text(
+                        text = "Invite another member to this channel first to place a call.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 260.dp)) {
+                        items(callableMemberIds, key = { it }) { memberId ->
+                            val memberName = conversation.participantNames[memberId] ?: "Member"
+                            val memberPhoto = conversation.participantPhotos[memberId]
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        haptics.lightTap()
+                                        onSelectMember(memberId, memberName, memberPhoto)
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                UserAvatar(name = memberName, photoUrl = memberPhoto, size = 40.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = memberName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = if (isVideoCall) Icons.Rounded.Videocam else Icons.Rounded.Call,
+                                    contentDescription = "Call $memberName",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }

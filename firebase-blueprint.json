@@ -21,6 +21,10 @@
           "type": "boolean",
           "description": "Whether in-app alert banners are enabled."
         },
+        "blockedUserIds": {
+          "type": "array",
+          "description": "Bounded list of user UIDs blocked by this user."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -137,7 +141,7 @@
         },
         "lastMessageType": {
           "type": "string",
-          "description": "Type of latest message (text, image, poll)."
+          "description": "Type of latest message (text, image, poll, audio)."
         },
         "lastMessageAt": {
           "type": "string",
@@ -147,6 +151,26 @@
         "unreadCounts": {
           "type": "object",
           "description": "Map of participant UID to unread message count."
+        },
+        "pinnedBy": {
+          "type": "object",
+          "description": "Map of participant UID to boolean indicating pinned conversation."
+        },
+        "mutedBy": {
+          "type": "object",
+          "description": "Map of participant UID to boolean indicating muted notifications."
+        },
+        "pinnedMessageId": {
+          "type": "string",
+          "description": "Optional pinned message ID inside the thread."
+        },
+        "pinnedMessagePreview": {
+          "type": "string",
+          "description": "Optional preview text of the pinned message."
+        },
+        "pinnedMessageSenderName": {
+          "type": "string",
+          "description": "Optional sender name of the pinned message."
         },
         "createdAt": {
           "type": "string",
@@ -188,7 +212,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["text", "image", "poll"],
+          "enum": ["text", "image", "poll", "audio"],
           "description": "Message payload type."
         },
         "text": {
@@ -198,6 +222,18 @@
         "imageBase64": {
           "type": "string",
           "description": "Optional compressed JPEG base64 thumbnail string."
+        },
+        "audioBase64": {
+          "type": "string",
+          "description": "Optional compressed AAC voice note encoded as Base64."
+        },
+        "audioDurationSec": {
+          "type": "integer",
+          "description": "Duration in seconds of voice note attachment."
+        },
+        "isForwarded": {
+          "type": "boolean",
+          "description": "Whether this message was forwarded from another chat."
         },
         "replyToMessageId": {
           "type": "string",

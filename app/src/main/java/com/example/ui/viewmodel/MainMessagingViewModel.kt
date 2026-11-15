@@ -3,10 +3,13 @@ package com.example.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.CallSession
 import com.example.data.model.Conversation
+import com.example.data.model.Message
 import com.example.data.model.PrivateUser
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
+import com.example.data.repository.CallSignalingRepository
 import com.example.data.repository.MessagingRepository
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,7 +34,8 @@ enum class ChatFilter(val label: String) {
 
 class MainMessagingViewModel(
     private val repository: MessagingRepository,
-    val currentUserId: String
+    val currentUserId: String,
+    private val callSignalingRepository: CallSignalingRepository? = null
 ) : ViewModel() {
 
     val currentUserProfile: StateFlow<UserProfile?> = repository.observeUserProfile(currentUserId)
@@ -62,6 +67,30 @@ class MainMessagingViewModel(
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = null
         )
+
+    val blockedUserIds: StateFlow<Set<String>> = privateUser
+        .map { it?.blockedUserIds?.toSet().orEmpty() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = emptySet()
+        )
+
+    val callHistory: StateFlow<List<CallSession>> =
+        (callSignalingRepository?.observeCallHistory(currentUserId) ?: flowOf(emptyList()))
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                Log.w(TAG, "Error observing call history", firestoreError ?: error)
+                emit(emptyList())
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+                initialValue = emptyList()
+            )
 
     val conversationsState: StateFlow<UiState<List<Conversation>>> =
         repository.observeConversations(currentUserId)
@@ -239,6 +268,73 @@ class MainMessagingViewModel(
                 .onFailure { err ->
                     _actionMessage.value = err.localizedMessage ?: "Failed to remove conversation"
                     onResult(false)
+                }
+        }
+    }
+
+    fun togglePinConversation(conversation: Conversation) {
+        viewModelScope.launch {
+            repository.togglePinConversation(conversation)
+                .onSuccess { pinned ->
+                    _actionMessage.value = if (pinned) "Conversation pinned" else "Conversation unpinned"
+                }
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to update pin"
+                }
+        }
+    }
+
+    fun toggleMuteConversation(conversation: Conversation) {
+        viewModelScope.launch {
+            repository.toggleMuteConversation(conversation)
+                .onSuccess { muted ->
+                    _actionMessage.value = if (muted) "Notifications muted" else "Notifications unmuted"
+                }
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to update mute"
+                }
+        }
+    }
+
+    fun toggleMarkUnread(conversation: Conversation) {
+        viewModelScope.launch {
+            repository.toggleMarkUnread(conversation)
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to update read status"
+                }
+        }
+    }
+
+    fun setUserBlocked(targetUserId: String, blocked: Boolean) {
+        viewModelScope.launch {
+            repository.setUserBlocked(targetUserId, blocked)
+                .onSuccess {
+                    _actionMessage.value = if (blocked) "Contact blocked" else "Contact unblocked"
+                }
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to update block setting"
+                }
+        }
+    }
+
+    fun forwardMessageToConversation(
+        targetConversation: Conversation,
+        original: Message,
+        onComplete: () -> Unit = {}
+    ) {
+        val me = currentUserProfile.value
+        if (me == null) {
+            _actionMessage.value = "Syncing your profile, please try again in a moment."
+            return
+        }
+        viewModelScope.launch {
+            repository.forwardMessage(targetConversation, me, original)
+                .onSuccess {
+                    _actionMessage.value = "Forwarded to ${targetConversation.displayTitleFor(currentUserId)}"
+                    onComplete()
+                }
+                .onFailure { err ->
+                    _actionMessage.value = err.localizedMessage ?: "Failed to forward message"
                 }
         }
     }
