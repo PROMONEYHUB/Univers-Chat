@@ -63,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -170,6 +172,8 @@ fun PulseChatApp() {
 @Composable
 private fun AuthenticatedShell(currentUserId: String) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val mainViewModel: MainMessagingViewModel = viewModel(
         key = currentUserId,
@@ -407,7 +411,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 MessageNotificationCoordinator.stopObserving()
                                 RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                 mainViewModel.setOnlineStatus(false)
-                                signOut()
+                                signOut(credentialManager, coroutineScope)
                             },
                             hasPhoneNotificationPermission = hasNotificationPermission,
                             onRequestNotificationPermission = {
@@ -530,7 +534,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     MessageNotificationCoordinator.stopObserving()
                                     RealtimeMessagingService.syncServiceState(context, shouldRun = false)
                                     mainViewModel.setOnlineStatus(false)
-                                    signOut()
+                                    signOut(credentialManager, coroutineScope)
                                 },
                                 hasPhoneNotificationPermission = hasNotificationPermission,
                                 onRequestNotificationPermission = {

@@ -98,6 +98,43 @@ service cloud.firestore {
              isValidTimestamp(data.updatedAt);
     }
 
+    function isValidCallSession(data) {
+      return data.callerId is string && isValidId(data.callerId) &&
+             data.calleeId is string && isValidId(data.calleeId) &&
+             data.callerName is string && data.callerName.size() >= 1 && data.callerName.size() <= 60 &&
+             data.calleeName is string && data.calleeName.size() >= 1 && data.calleeName.size() <= 60 &&
+             (!('callerPhotoUrl' in data) || data.callerPhotoUrl == null || (data.callerPhotoUrl is string && data.callerPhotoUrl.size() <= 500)) &&
+             (!('calleePhotoUrl' in data) || data.calleePhotoUrl == null || (data.calleePhotoUrl is string && data.calleePhotoUrl.size() <= 500)) &&
+             data.participantIds is list &&
+             data.participantIds.size() == 2 &&
+             data.participantIds[0] is string &&
+             data.participantIds[1] is string &&
+             data.callerId in data.participantIds &&
+             data.calleeId in data.participantIds &&
+             data.conversationId is string && isValidId(data.conversationId) &&
+             data.callType in ['voice', 'video'] &&
+             data.qualityPreset in ['HD_720P', 'FHD_1080P', 'HD_VOICE'] &&
+             data.status in ['ringing', 'accepted', 'declined', 'ended', 'missed'] &&
+             (!('offerSdp' in data) || data.offerSdp == null || (data.offerSdp is string && data.offerSdp.size() <= 25000)) &&
+             (!('answerSdp' in data) || data.answerSdp == null || (data.answerSdp is string && data.answerSdp.size() <= 25000)) &&
+             (!('endedBy' in data) || data.endedBy == null || (data.endedBy is string && isValidId(data.endedBy))) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidIceCandidate(data) {
+      return data.callId is string && isValidId(data.callId) &&
+             data.senderId is string && isValidId(data.senderId) &&
+             data.participantIds is list &&
+             data.participantIds.size() == 2 &&
+             data.participantIds[0] is string &&
+             data.participantIds[1] is string &&
+             data.sdpMid is string && data.sdpMid.size() <= 64 &&
+             data.sdpMLineIndex is int && data.sdpMLineIndex >= 0 && data.sdpMLineIndex <= 32 &&
+             data.candidate is string && data.candidate.size() >= 1 && data.candidate.size() <= 2000 &&
+             isValidTimestamp(data.createdAt);
+    }
+
     // --- Collection 1: Private User Account (PII Isolated) ---
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
@@ -269,6 +306,102 @@ service cloud.firestore {
 
         allow delete: if isSignedIn() && isValidId(conversationId) && isValidId(messageId) &&
                          existing().senderId == request.auth.uid;
+      }
+    }
+
+    // --- Collection 4: WebRTC HD Voice & Video Calls ---
+    match /calls/{callId} {
+      allow get: if isSignedIn() && isValidId(callId) &&
+                    (resource == null || request.auth.uid in existing().participantIds);
+
+      allow list: if isSignedIn() &&
+                     request.auth.uid in resource.data.participantIds;
+
+      allow create: if isSignedIn() &&
+                       isValidId(callId) &&
+                       incoming().callerId == request.auth.uid &&
+                       incoming().callerId != incoming().calleeId &&
+                       incoming().status == 'ringing' &&
+                       incoming().offerSdp is string && incoming().offerSdp.size() >= 10 &&
+                       incoming().keys().hasAll([
+                         'callerId', 'callerName', 'calleeId', 'calleeName',
+                         'participantIds', 'conversationId', 'callType', 'qualityPreset',
+                         'status', 'offerSdp', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'callerId', 'callerName', 'callerPhotoUrl',
+                         'calleeId', 'calleeName', 'calleePhotoUrl',
+                         'participantIds', 'conversationId', 'callType', 'qualityPreset',
+                         'status', 'offerSdp', 'answerSdp', 'endedBy',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidCallSession(incoming()) &&
+                       exists(/databases/$(database)/documents/user_profiles/$(incoming().calleeId));
+
+      allow update: if isSignedIn() &&
+                       isValidId(callId) &&
+                       isValidCallSession(incoming()) &&
+                       request.auth.uid in existing().participantIds &&
+                       incoming().callerId == existing().callerId &&
+                       incoming().calleeId == existing().calleeId &&
+                       incoming().participantIds == existing().participantIds &&
+                       incoming().conversationId == existing().conversationId &&
+                       incoming().createdAt == existing().createdAt &&
+                       !(existing().status in ['declined', 'ended', 'missed']) &&
+                       (
+                         // Action 1: Callee accepts ringing call with SDP answer
+                         (request.auth.uid == existing().calleeId &&
+                          existing().status == 'ringing' &&
+                          incoming().status == 'accepted' &&
+                          incoming().answerSdp is string && incoming().answerSdp.size() >= 10 &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'answerSdp', 'updatedAt'])) ||
+                         // Action 2: Callee declines ringing call
+                         (request.auth.uid == existing().calleeId &&
+                          existing().status == 'ringing' &&
+                          incoming().status == 'declined' &&
+                          incoming().endedBy == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'endedBy', 'updatedAt'])) ||
+                         // Action 3: Either participant ends active/ringing call or caller marks missed
+                         (incoming().status in ['ended', 'missed'] &&
+                          incoming().endedBy == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'endedBy', 'updatedAt'])) ||
+                         // Action 4: Active call quality switch or ICE renegotiation
+                         (existing().status == 'accepted' &&
+                          incoming().status == 'accepted' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['qualityPreset', 'offerSdp', 'answerSdp', 'updatedAt']))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(callId) &&
+                       existing().callerId == request.auth.uid &&
+                       existing().status in ['declined', 'ended', 'missed'];
+
+      // --- Subcollection: Trickle ICE Candidates ---
+      match /candidates/{candidateId} {
+        allow get: if isSignedIn() && isValidId(callId) && isValidId(candidateId) &&
+                      request.auth.uid in existing().participantIds;
+
+        allow list: if isSignedIn() &&
+                       request.auth.uid in resource.data.participantIds;
+
+        allow create: if isSignedIn() &&
+                         isValidId(callId) &&
+                         isValidId(candidateId) &&
+                         incoming().callId == callId &&
+                         incoming().senderId == request.auth.uid &&
+                         request.auth.uid in incoming().participantIds &&
+                         incoming().keys().hasAll([
+                           'callId', 'senderId', 'participantIds',
+                           'sdpMid', 'sdpMLineIndex', 'candidate', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'callId', 'senderId', 'participantIds',
+                           'sdpMid', 'sdpMLineIndex', 'candidate', 'createdAt'
+                         ]) &&
+                         isValidIceCandidate(incoming()) &&
+                         exists(/databases/$(database)/documents/calls/$(callId)) &&
+                         incoming().participantIds == get(/databases/$(database)/documents/calls/$(callId)).data.participantIds;
+
+        allow update, delete: if false;
       }
     }
   }

@@ -61,6 +61,9 @@ test("Unauthenticated user cannot read or write any collection", async () => {
       .where("participantIds", "array-contains", ALICE_UID)
       .get()
   );
+  await assertFails(
+    unauthDb.collection("calls").where("participantIds", "array-contains", ALICE_UID).get()
+  );
 });
 
 // --- 2. Private User PII isolation (/users/{uid}) ---
@@ -385,5 +388,148 @@ test("Participants can send, react, vote on polls, edit own text, while non-part
       .collection("messages")
       .doc("msg_1")
       .delete()
+  );
+});
+
+// --- 6. WebRTC HD Calls & ICE Candidates (/calls/{callId}/candidates/{candidateId}) ---
+
+test("Participants can initiate, accept, exchange ICE candidates, end HD calls; outsiders and post-terminal updates fail", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+
+  // Seed Bob's public profile because call creation verifies callee exists
+  await assertSucceeds(
+    bobDb.collection("user_profiles").doc(BOB_UID).set({
+      userId: BOB_UID,
+      displayName: "Bob",
+      handle: "bob",
+      isOnline: true,
+      isDiscoverable: true,
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice starts an HD video call with Bob
+  const callRef = aliceDb.collection("calls").doc("call_hd_1");
+  await assertSucceeds(
+    callRef.set({
+      callerId: ALICE_UID,
+      callerName: "Alice",
+      calleeId: BOB_UID,
+      calleeName: "Bob",
+      participantIds: [ALICE_UID, BOB_UID],
+      conversationId: "dm_alice_bob",
+      callType: "video",
+      qualityPreset: "HD_720P",
+      status: "ringing",
+      offerSdp: "v=0\no=- 12345 2 IN IP4 127.0.0.1\ns=-\nt=0 0\n",
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Blanket unfiltered query fails
+  await assertFails(bobDb.collection("calls").get());
+
+  // Bob's aligned query succeeds
+  await assertSucceeds(
+    bobDb.collection("calls").where("participantIds", "array-contains", BOB_UID).get()
+  );
+
+  // Charlie cannot read, spoof, or accept Bob's call
+  await assertFails(charlieDb.collection("calls").doc("call_hd_1").get());
+  await assertFails(
+    charlieDb.collection("calls").doc("call_hd_1").update({
+      status: "accepted",
+      answerSdp: "v=0\no=- 999 2 IN IP4 127.0.0.1\n",
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice cannot self-accept her own call
+  await assertFails(
+    aliceDb.collection("calls").doc("call_hd_1").update({
+      status: "accepted",
+      answerSdp: "v=0\no=- 999 2 IN IP4 127.0.0.1\n",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob accepts the call with answerSdp
+  await assertSucceeds(
+    bobDb.collection("calls").doc("call_hd_1").update({
+      status: "accepted",
+      answerSdp: "v=0\no=- 67890 2 IN IP4 127.0.0.1\ns=-\nt=0 0\n",
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice upgrades live call quality preset to Full HD 1080p
+  await assertSucceeds(
+    aliceDb.collection("calls").doc("call_hd_1").update({
+      qualityPreset: "FHD_1080P",
+      updatedAt: ts(),
+    })
+  );
+
+  // Both participants exchange ICE candidates; Charlie cannot
+  await assertSucceeds(
+    aliceDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .doc("ice_a1")
+      .set({
+        callId: "call_hd_1",
+        senderId: ALICE_UID,
+        participantIds: [ALICE_UID, BOB_UID],
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:1 1 UDP 2122252543 192.168.1.10 54321 typ host",
+        createdAt: ts(),
+      })
+  );
+  await assertSucceeds(
+    bobDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .where("participantIds", "array-contains", BOB_UID)
+      .get()
+  );
+  await assertFails(
+    charlieDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .doc("ice_c1")
+      .set({
+        callId: "call_hd_1",
+        senderId: CHARLIE_UID,
+        participantIds: [ALICE_UID, BOB_UID],
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:1 1 UDP 2122252543 10.0.0.1 9999 typ host",
+        createdAt: ts(),
+      })
+  );
+
+  // Bob ends the call cleanly
+  await assertSucceeds(
+    bobDb.collection("calls").doc("call_hd_1").update({
+      status: "ended",
+      endedBy: BOB_UID,
+      updatedAt: ts(),
+    })
+  );
+
+  // Terminal state lock: cannot reopen an ended call
+  await assertFails(
+    aliceDb.collection("calls").doc("call_hd_1").update({
+      qualityPreset: "HD_720P",
+      updatedAt: ts(),
+    })
   );
 });

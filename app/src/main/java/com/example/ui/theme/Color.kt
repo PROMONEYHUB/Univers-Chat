@@ -73,6 +73,12 @@ val DynamicIslandDarkBorder = Color(0xFF282E3D)
 val AuroraCyan = Color(0xFF22D3EE)
 val AuroraViolet = Color(0xFF7C3AED)
 
+// Google Sign-In Mark Tokens
+val GoogleBlue = Color(0xFF4285F4)
+val GoogleRed = Color(0xFFEA4335)
+val GoogleYellow = Color(0xFFFBBC05)
+val GoogleGreen = Color(0xFF34A853)
+
 // iOS-Inspired Gradients & Brushes
 object PulseBrushes {
     val BrandGradient: Brush = Brush.linearGradient(

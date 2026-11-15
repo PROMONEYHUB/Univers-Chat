@@ -7,15 +7,18 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -67,10 +71,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -84,11 +90,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
 import com.example.R
+import com.example.ui.components.GlassmorphismCard
+import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.components.rememberIosHaptics
+import com.example.ui.theme.GoogleBlue
+import com.example.ui.theme.GoogleGreen
+import com.example.ui.theme.GoogleRed
+import com.example.ui.theme.GoogleYellow
 import com.example.ui.theme.IosBlue
-import com.example.ui.theme.IosIndigo
-import com.example.ui.theme.IosTeal
 import com.example.ui.theme.OnlinePresenceGreen
 import com.example.ui.theme.PulseBrushes
 import com.google.firebase.auth.PhoneAuthProvider
@@ -108,6 +119,8 @@ fun AuthScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val haptics = rememberIosHaptics()
+    val isDark = isSystemInDarkTheme()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     var authStepName by rememberSaveable { mutableStateOf(PhoneAuthStep.ENTER_PHONE.name) }
     val authStep = remember(authStepName) { PhoneAuthStep.valueOf(authStepName) }
@@ -123,8 +136,20 @@ fun AuthScreen(
     var verificationId by rememberSaveable { mutableStateOf<String?>(null) }
     var resendToken by remember { mutableStateOf<PhoneAuthProvider.ForceResendingToken?>(null) }
     var resendSecondsRemaining by rememberSaveable { mutableIntStateOf(0) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isPhoneLoading by remember { mutableStateOf(false) }
+    var isGoogleLoading by remember { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val isBusy = isPhoneLoading || isGoogleLoading
+
+    LaunchedEffect(Unit) {
+        attemptAutoSignIn(
+            context = context,
+            credentialManager = credentialManager,
+            onAuthSuccess = onAuthSuccess,
+            onUnauthenticated = {},
+            scope = coroutineScope
+        )
+    }
 
     LaunchedEffect(authStep, resendSecondsRemaining) {
         if (authStep == PhoneAuthStep.VERIFY_OTP && resendSecondsRemaining > 0) {
@@ -151,7 +176,7 @@ fun AuthScreen(
 
         haptics.lightTap()
         errorMessage = null
-        isLoading = true
+        isPhoneLoading = true
         submittedPhoneE164 = formattedE164
 
         startPhoneNumberVerification(
@@ -163,7 +188,7 @@ fun AuthScreen(
                 verificationId = vId
                 resendToken = token
                 resendSecondsRemaining = 60
-                isLoading = false
+                isPhoneLoading = false
                 if (!isResend) {
                     otpCode = ""
                     authStepName = PhoneAuthStep.VERIFY_OTP.name
@@ -172,7 +197,7 @@ fun AuthScreen(
             onAutoVerified = { credential ->
                 coroutineScope.launch {
                     val result = signInWithPhoneCredential(credential, displayName)
-                    isLoading = false
+                    isPhoneLoading = false
                     result.onSuccess {
                         haptics.success()
                         onAuthSuccess()
@@ -182,7 +207,7 @@ fun AuthScreen(
                 }
             },
             onVerificationFailed = { msg ->
-                isLoading = false
+                isPhoneLoading = false
                 errorMessage = msg
             }
         )
@@ -201,14 +226,14 @@ fun AuthScreen(
         }
         haptics.lightTap()
         errorMessage = null
-        isLoading = true
+        isPhoneLoading = true
         coroutineScope.launch {
             val result = verifyPhoneOtpAndSignIn(
                 verificationId = vId,
                 otpCode = cleaned,
                 displayName = displayName
             )
-            isLoading = false
+            isPhoneLoading = false
             result.onSuccess {
                 haptics.success()
                 onAuthSuccess()
@@ -218,9 +243,29 @@ fun AuthScreen(
         }
     }
 
-    val primaryGlow = MaterialTheme.colorScheme.primary
-    val accentTealGlow = IosTeal
-    val accentIndigoGlow = IosIndigo
+    fun triggerGoogleSignIn() {
+        if (isBusy) return
+        haptics.lightTap()
+        errorMessage = null
+        isGoogleLoading = true
+        onGoogleSignInClicked(
+            context = context,
+            credentialManager = credentialManager,
+            onAuthSuccess = {
+                isGoogleLoading = false
+                haptics.success()
+                onAuthSuccess()
+            },
+            onAuthError = { msg ->
+                isGoogleLoading = false
+                errorMessage = msg
+            },
+            scope = coroutineScope,
+            onAuthCancelled = {
+                isGoogleLoading = false
+            }
+        )
+    }
 
     val ctaInteraction = remember { MutableInteractionSource() }
     val isCtaPressed by ctaInteraction.collectIsPressedAsState()
@@ -231,545 +276,581 @@ fun AuthScreen(
     )
 
     val formattedCandidate = formatE164PhoneNumber(selectedCountry.dialCode, phoneInput)
-    val canSendCode = !isLoading && isValidE164PhoneNumber(formattedCandidate)
-    val canVerifyOtp = !isLoading && otpCode.length == 6
+    val canSendCode = !isBusy && isValidE164PhoneNumber(formattedCandidate)
+    val canVerifyOtp = !isBusy && otpCode.length == 6
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(primaryGlow.copy(alpha = 0.16f), Color.Transparent),
-                        center = Offset(size.width * 0.85f, size.height * 0.10f),
-                        radius = size.maxDimension * 0.52f
-                    ),
-                    center = Offset(size.width * 0.85f, size.height * 0.10f),
-                    radius = size.maxDimension * 0.52f
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(accentTealGlow.copy(alpha = 0.12f), Color.Transparent),
-                        center = Offset(size.width * 0.10f, size.height * 0.60f),
-                        radius = size.maxDimension * 0.44f
-                    ),
-                    center = Offset(size.width * 0.10f, size.height * 0.60f),
-                    radius = size.maxDimension * 0.44f
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(accentIndigoGlow.copy(alpha = 0.10f), Color.Transparent),
-                        center = Offset(size.width * 0.82f, size.height * 0.90f),
-                        radius = size.maxDimension * 0.36f
-                    ),
-                    center = Offset(size.width * 0.82f, size.height * 0.90f),
-                    radius = size.maxDimension * 0.36f
-                )
-            }
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentAlignment = Alignment.Center
+        modifier = modifier.fillMaxSize()
     ) {
-        Column(
+        LiquidGlassBackdrop()
+
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 520.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                modifier = Modifier.border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = CircleShape
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(PulseBrushes.BrandGradient),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Bolt,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(OnlinePresenceGreen)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 14.dp)
+                    .widthIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 22.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(185.dp)
-                        .border(
-                            width = 0.8.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(28.dp)
-                        )
-                ) {
-                    Box {
-                        Image(
-                            painter = painterResource(id = R.drawable.img_auth_hero),
-                            contentDescription = stringResource(R.string.auth_hero_desc),
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f))
-                                    )
-                                )
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = (-14).dp, y = 14.dp)
-                        .border(
-                            width = 0.8.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(18.dp)
-                        )
+                GlassmorphismCard(
+                    shape = CircleShape,
+                    blurRadius = 18.dp,
+                    tintAlpha = if (isDark) 0.14f else 0.56f
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(26.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(IosBlue),
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(PulseBrushes.BrandGradient),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.Sms,
+                                imageVector = Icons.Rounded.Bolt,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "Instant OTP Sign-In",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(OnlinePresenceGreen)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(176.dp)
+                            .border(
+                                width = 0.9.dp,
+                                color = Color.White.copy(alpha = if (isDark) 0.22f else 0.85f),
+                                shape = RoundedCornerShape(28.dp)
                             )
-                            Text(
-                                text = "Global SMS · Real-Time Chat",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ) {
+                        Box {
+                            Image(
+                                painter = painterResource(id = R.drawable.img_auth_hero),
+                                contentDescription = stringResource(R.string.auth_hero_desc),
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f))
+                                        )
+                                    )
                             )
                         }
                     }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                    stringResource(R.string.auth_headline)
-                } else {
-                    "Enter verification code"
-                },
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                    stringResource(R.string.auth_subtitle)
-                } else {
-                    "We sent a 6-digit SMS code to $submittedPhoneE164"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                shadowElevation = 2.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(
-                        width = 0.9.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = RoundedCornerShape(24.dp)
-                    )
-            ) {
-                AnimatedContent(
-                    targetState = authStep,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "phone_otp_step"
-                ) { step ->
-                    if (step == PhoneAuthStep.ENTER_PHONE) {
-                        Column(
-                            modifier = Modifier.padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                    GlassmorphismCard(
+                        shape = RoundedCornerShape(18.dp),
+                        highlighted = true,
+                        blurRadius = 20.dp,
+                        tintAlpha = if (isDark) 0.22f else 0.78f,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = (-14).dp, y = 14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedTextField(
-                                value = displayName,
-                                onValueChange = { displayName = it.take(40) },
-                                label = { Text("Your Name (optional)") },
-                                placeholder = { Text("e.g. Alex Rivera") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PersonOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Words,
-                                    imeAction = ImeAction.Next
-                                ),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                                ),
+                            Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("auth_display_name_input")
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(IosBlue),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                                    modifier = Modifier
-                                        .height(56.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .border(
-                                            width = 0.8.dp,
-                                            color = MaterialTheme.colorScheme.outlineVariant,
-                                            shape = RoundedCornerShape(16.dp)
-                                        )
-                                        .clickable(enabled = !isLoading) {
-                                            haptics.lightTap()
-                                            showCountryPicker = true
-                                        }
-                                        .testTag("country_code_picker_button")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(text = selectedCountry.flag, fontSize = 18.sp)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = selectedCountry.dialCode,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Icon(
-                                            imageVector = Icons.Rounded.KeyboardArrowDown,
-                                            contentDescription = "Choose country code",
-                                            modifier = Modifier.size(18.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.Sms,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "OTP & Google Sign-In",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Global SMS · Instant Access",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
+                        stringResource(R.string.auth_headline)
+                    } else {
+                        "Enter verification code"
+                    },
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
+                        stringResource(R.string.auth_subtitle)
+                    } else {
+                        "We sent a 6-digit SMS code to $submittedPhoneE164"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                GlassmorphismCard(
+                    shape = RoundedCornerShape(26.dp),
+                    highlighted = true,
+                    blurRadius = 22.dp,
+                    tintAlpha = if (isDark) 0.14f else 0.56f,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    AnimatedContent(
+                        targetState = authStep,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label = "phone_otp_step"
+                    ) { step ->
+                        if (step == PhoneAuthStep.ENTER_PHONE) {
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                                 OutlinedTextField(
-                                    value = phoneInput,
-                                    onValueChange = { next ->
-                                        val filtered = next.filterIndexed { index, ch ->
-                                            ch.isDigit() || (index == 0 && ch == '+') || ch == ' ' || ch == '-'
-                                        }
-                                        phoneInput = filtered.take(18)
-                                        errorMessage = null
-                                    },
-                                    label = { Text("Phone Number") },
-                                    placeholder = { Text("555 123 4567") },
+                                    value = displayName,
+                                    onValueChange = { displayName = it.take(40) },
+                                    label = { Text("Your Name (optional)") },
+                                    placeholder = { Text("e.g. Alex Rivera") },
                                     leadingIcon = {
                                         Icon(
-                                            imageVector = Icons.Rounded.PhoneAndroid,
+                                            imageVector = Icons.Rounded.PersonOutline,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(
-                                        keyboardType = KeyboardType.Phone,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onDone = { if (canSendCode) requestOtp(isResend = false) }
+                                        capitalization = KeyboardCapitalization.Words,
+                                        imeAction = ImeAction.Next
                                     ),
                                     shape = RoundedCornerShape(16.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.30f)
                                     ),
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("phone_number_input")
+                                        .fillMaxWidth()
+                                        .testTag("auth_display_name_input")
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    GlassmorphismCard(
+                                        shape = RoundedCornerShape(16.dp),
+                                        blurRadius = 14.dp,
+                                        tintAlpha = if (isDark) 0.14f else 0.48f,
+                                        onClick = {
+                                            haptics.lightTap()
+                                            showCountryPicker = true
+                                        },
+                                        enabled = !isBusy,
+                                        modifier = Modifier
+                                            .height(56.dp)
+                                            .testTag("country_code_picker_button")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .height(56.dp)
+                                                .padding(horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(text = selectedCountry.flag, fontSize = 18.sp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = selectedCountry.dialCode,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Icon(
+                                                imageVector = Icons.Rounded.KeyboardArrowDown,
+                                                contentDescription = "Choose country code",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = phoneInput,
+                                        onValueChange = { next ->
+                                            val filtered = next.filterIndexed { index, ch ->
+                                                ch.isDigit() || (index == 0 && ch == '+') || ch == ' ' || ch == '-'
+                                            }
+                                            phoneInput = filtered.take(18)
+                                            errorMessage = null
+                                        },
+                                        label = { Text("Phone Number") },
+                                        placeholder = { Text("555 123 4567") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PhoneAndroid,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = KeyboardType.Phone,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = { if (canSendCode) requestOtp(isResend = false) }
+                                        ),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.30f)
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("phone_number_input")
+                                    )
+                                }
+
+                                Text(
+                                    text = "All countries supported. You'll receive a 6-digit SMS code to verify your number.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
-                            Text(
-                                text = "All countries supported. You'll receive a 6-digit SMS code to verify your number.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier.padding(18.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                        } else {
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                TextButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        errorMessage = null
-                                        otpCode = ""
-                                        authStepName = PhoneAuthStep.ENTER_PHONE.name
-                                    },
-                                    enabled = !isLoading,
-                                    modifier = Modifier.testTag("change_phone_button")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Change number", fontWeight = FontWeight.SemiBold)
-                                }
-
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.MarkEmailRead,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(5.dp))
-                                        Text(
-                                            text = "6-digit OTP",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                            }
-
-                            OtpDigitBoxes(
-                                code = otpCode,
-                                enabled = !isLoading,
-                                onCodeChange = { updated ->
-                                    val digitsOnly = updated.filter { it.isDigit() }.take(6)
-                                    if (digitsOnly.length != otpCode.length) {
-                                        haptics.selectionTick()
-                                    }
-                                    otpCode = digitsOnly
-                                    errorMessage = null
-                                    if (digitsOnly.length == 6 && !isLoading) {
-                                        submitOtp(digitsOnly)
-                                    }
-                                }
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                if (resendSecondsRemaining > 0) {
-                                    Text(
-                                        text = "Resend code in ${resendSecondsRemaining}s",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                } else {
                                     TextButton(
-                                        onClick = { requestOtp(isResend = true) },
-                                        enabled = !isLoading,
-                                        modifier = Modifier.testTag("resend_otp_button")
+                                        onClick = {
+                                            haptics.lightTap()
+                                            errorMessage = null
+                                            otpCode = ""
+                                            authStepName = PhoneAuthStep.ENTER_PHONE.name
+                                        },
+                                        enabled = !isBusy,
+                                        modifier = Modifier.testTag("change_phone_button")
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Rounded.Refresh,
+                                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Resend OTP", fontWeight = FontWeight.Bold)
+                                        Text("Change number", fontWeight = FontWeight.SemiBold)
+                                    }
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.MarkEmailRead,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                text = "6-digit OTP",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                OtpDigitBoxes(
+                                    code = otpCode,
+                                    enabled = !isBusy,
+                                    onCodeChange = { updated ->
+                                        val digitsOnly = updated.filter { it.isDigit() }.take(6)
+                                        if (digitsOnly.length != otpCode.length) {
+                                            haptics.selectionTick()
+                                        }
+                                        otpCode = digitsOnly
+                                        errorMessage = null
+                                        if (digitsOnly.length == 6 && !isBusy) {
+                                            submitOtp(digitsOnly)
+                                        }
+                                    }
+                                )
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    if (resendSecondsRemaining > 0) {
+                                        Text(
+                                            text = "Resend code in ${resendSecondsRemaining}s",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        TextButton(
+                                            onClick = { requestOtp(isResend = true) },
+                                            enabled = !isBusy,
+                                            modifier = Modifier.testTag("resend_otp_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Refresh,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Resend OTP", fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            if (errorMessage != null) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    GlassmorphismCard(
+                        shape = RoundedCornerShape(16.dp),
+                        borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.55f),
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                        contentPadding = PaddingValues(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("auth_error_banner")
+                    ) {
+                        Text(
+                            text = errorMessage ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (authStep == PhoneAuthStep.ENTER_PHONE) {
+                            requestOtp(isResend = false)
+                        } else {
+                            submitOtp()
+                        }
+                    },
+                    enabled = if (authStep == PhoneAuthStep.ENTER_PHONE) canSendCode else canVerifyOtp,
+                    interactionSource = ctaInteraction,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("auth_error_banner")
+                        .height(54.dp)
+                        .graphicsLayer {
+                            scaleX = ctaScale
+                            scaleY = ctaScale
+                        }
+                        .testTag(
+                            if (authStep == PhoneAuthStep.ENTER_PHONE) "send_otp_button"
+                            else "verify_otp_button"
+                        )
                 ) {
-                    Text(
-                        text = errorMessage ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Button(
-                onClick = {
-                    if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                        requestOtp(isResend = false)
+                    if (isPhoneLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.5.dp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
+                                stringResource(R.string.sending_code)
+                            } else {
+                                stringResource(R.string.verifying_code)
+                            },
+                            style = MaterialTheme.typography.labelLarge
+                        )
                     } else {
-                        submitOtp()
+                        Text(
+                            text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
+                                stringResource(R.string.send_otp_code)
+                            } else {
+                                stringResource(R.string.verify_and_continue)
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                },
-                enabled = if (authStep == PhoneAuthStep.ENTER_PHONE) canSendCode else canVerifyOtp,
-                interactionSource = ctaInteraction,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .graphicsLayer {
-                        scaleX = ctaScale
-                        scaleY = ctaScale
-                    }
-                    .testTag(
-                        if (authStep == PhoneAuthStep.ENTER_PHONE) "send_otp_button"
-                        else "verify_otp_button"
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
                     )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = Color.White,
-                        strokeWidth = 2.5.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                            stringResource(R.string.sending_code)
-                        } else {
-                            stringResource(R.string.verifying_code)
-                        },
-                        style = MaterialTheme.typography.labelLarge
+                        text = "OR",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
-                } else {
-                    Text(
-                        text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                            stringResource(R.string.send_otp_code)
-                        } else {
-                            stringResource(R.string.verify_and_continue)
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.auth_privacy_note),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                GlassmorphismCard(
+                    shape = CircleShape,
+                    blurRadius = 18.dp,
+                    highlighted = false,
+                    tintAlpha = if (isDark) 0.16f else 0.72f,
+                    onClick = ::triggerGoogleSignIn,
+                    enabled = !isBusy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .testTag("google_sign_in_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isGoogleLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.4.dp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = stringResource(R.string.signing_in_google),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        } else {
+                            GoogleMarkIcon(modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = stringResource(R.string.sign_in_with_google),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.auth_privacy_note),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -786,6 +867,61 @@ fun AuthScreen(
                 haptics.lightTap()
                 showCountryPicker = false
             }
+        )
+    }
+}
+
+@Composable
+private fun GoogleMarkIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = size.minDimension * 0.21f
+        val inset = strokeWidth / 2f
+        val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+        val topLeft = Offset(inset, inset)
+
+        drawArc(
+            color = GoogleRed,
+            startAngle = -145f,
+            sweepAngle = 100f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+        )
+        drawArc(
+            color = GoogleYellow,
+            startAngle = 145f,
+            sweepAngle = 70f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+        )
+        drawArc(
+            color = GoogleGreen,
+            startAngle = 45f,
+            sweepAngle = 100f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+        )
+        drawArc(
+            color = GoogleBlue,
+            startAngle = -5f,
+            sweepAngle = 55f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+        )
+        val centerY = size.height / 2f
+        drawLine(
+            color = GoogleBlue,
+            start = Offset(size.width * 0.50f, centerY),
+            end = Offset(size.width - inset * 0.4f, centerY),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Butt
         )
     }
 }
