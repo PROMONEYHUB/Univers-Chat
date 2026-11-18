@@ -25,6 +25,11 @@ function createInMemoryStore() {
       const existing = sessions.get(sessionId);
       if (existing) sessions.set(sessionId, { ...existing, ...patch });
     },
+    async getRecentDeliveredSessionsByPhone(phoneNumber, nowMs) {
+      return [...sessions.values()]
+        .filter((s) => s.phoneNumber === phoneNumber && !s.consumed && s.deliveredAt && s.expiresAt >= nowMs)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    },
     async getPhoneLink(phoneNumber) {
       return links.get(phoneNumber) || null;
     },
@@ -360,4 +365,69 @@ test('plain /start without deep link still displays Share My Phone Number button
   const saved = await store.getPhoneLink('+919900112233');
   assert.equal(saved.chatId, 444555);
 });
+
+test('cross-device flow: accepts delivered OTP from earlier active session for the same phone number', async () => {
+  const store = createInMemoryStore();
+  const telegramApi = createFakeTelegramApi();
+  let now = 1_700_000_000_000;
+
+  // Session 1 requested and delivered on physical phone Telegram
+  const s1 = await requestTelegramOtp({
+    phoneNumber: '+919706150227',
+    botUsername: 'UniversChatOtpBot',
+    store,
+    telegramApi,
+    nowMs: () => now,
+  });
+  await handleTelegramUpdate({
+    update: {
+      message: { chat: { id: 101 }, from: { id: 101 }, text: `/start verify_${s1.sessionId}` },
+    },
+    store,
+    telegramApi,
+    nowMs: () => now,
+  });
+  await handleTelegramUpdate({
+    update: {
+      message: {
+        chat: { id: 101 },
+        from: { id: 101, first_name: 'Dev' },
+        contact: { user_id: 101, phone_number: '+919706150227', first_name: 'Dev' },
+      },
+    },
+    store,
+    telegramApi,
+    nowMs: () => now,
+  });
+  const deliveredOtp = telegramApi.sentMessages[1].text.match(/<code>(\d{6})<\/code>/)[1];
+
+  // Emulator subsequently creates Session 2 (e.g., user tapped Resend or restarted emulator)
+  const s2 = await requestTelegramOtp({
+    phoneNumber: '+919706150227',
+    botUsername: 'UniversChatOtpBot',
+    store,
+    telegramApi,
+    nowMs: () => now + 35_000,
+  });
+
+  // User types Session 1's delivered OTP into emulator holding Session 2 -> succeeds cleanly!
+  const verified = await verifyTelegramOtp({
+    sessionId: s2.sessionId,
+    phoneNumber: '+919706150227',
+    otp: deliveredOtp,
+    jwtSecret: TEST_JWT_SECRET,
+    store,
+    nowMs: () => now + 40_000,
+    upsertUser: async (input) => ({
+      uid: 'uid_dev_91',
+      displayName: input.displayName,
+      photoUrl: '',
+      isNewUser: false,
+      firebaseCustomToken: 'fb-custom-dev',
+    }),
+  });
+  assert.equal(verified.user.uid, 'uid_dev_91');
+  assert.equal(verified.firebaseCustomToken, 'fb-custom-dev');
+});
+
 

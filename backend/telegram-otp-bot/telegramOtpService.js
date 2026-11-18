@@ -172,8 +172,9 @@ export async function requestTelegramOtp({
       deliveryMode = 'sent_directly';
       deliveredAt = now;
       botDeepLink = `https://t.me/${bot}`;
-    } catch {
+    } catch (err) {
       // User may have blocked/cleared the bot; fall back cleanly to open_bot flow
+      console.warn('[requestTelegramOtp] Direct Telegram send failed, falling back to open_bot:', err?.message || err);
       deliveryMode = 'open_bot';
     }
   }
@@ -392,35 +393,63 @@ export async function verifyTelegramOtp({
     throw new HttpError(400, 'sessionId, valid E.164 phoneNumber, and 6-digit otp are required.', 'INVALID_INPUT');
   }
 
-  const session = await store.getSession(cleanSessionId);
+  const now = nowMs();
+  let session = await store.getSession(cleanSessionId);
   if (!session || session.phoneNumber !== normalizedPhone) {
     throw new HttpError(401, 'Invalid verification session. Please request a new Telegram OTP.', 'INVALID_SESSION');
   }
 
-  if (session.consumed) {
-    throw new HttpError(401, 'This verification code has already been used. Request a new one.', 'OTP_ALREADY_USED');
-  }
+  // Cross-device resilience: if the user opened Telegram on another device (e.g., their physical phone
+  // while typing into the emulator) and received a valid OTP from an active delivered session for this
+  // exact same phone number, allow verifying against that delivered session.
+  const canVerifyPrimary =
+    !session.consumed &&
+    now <= session.expiresAt &&
+    Boolean(session.deliveredAt) &&
+    session.attempts < MAX_OTP_ATTEMPTS;
 
-  if (nowMs() > session.expiresAt) {
-    throw new HttpError(410, 'This Telegram OTP has expired. Please tap Resend OTP.', 'OTP_EXPIRED');
-  }
+  let matchedViaPrimary = canVerifyPrimary && verifyOtpHash(cleanOtp, session.salt, session.otpHash);
 
-  if (!session.deliveredAt) {
-    throw new HttpError(
-      400,
-      'Please open the Telegram Bot, tap Start, and share your phone number first to receive your code.',
-      'OTP_NOT_DELIVERED'
+  if (!matchedViaPrimary && typeof store.getRecentDeliveredSessionsByPhone === 'function') {
+    const candidates = await store.getRecentDeliveredSessionsByPhone(normalizedPhone, now);
+    const matchedCandidate = candidates.find(
+      (cand) =>
+        cand &&
+        !cand.consumed &&
+        cand.deliveredAt &&
+        now <= cand.expiresAt &&
+        (cand.attempts || 0) < MAX_OTP_ATTEMPTS &&
+        verifyOtpHash(cleanOtp, cand.salt, cand.otpHash)
     );
+    if (matchedCandidate) {
+      session = matchedCandidate;
+      matchedViaPrimary = true;
+    }
   }
 
-  if (session.attempts >= MAX_OTP_ATTEMPTS) {
-    throw new HttpError(429, 'Too many failed attempts. Please request a fresh Telegram OTP.', 'MAX_ATTEMPTS');
-  }
+  if (!matchedViaPrimary) {
+    if (session.consumed) {
+      throw new HttpError(401, 'This verification code has already been used. Request a new one.', 'OTP_ALREADY_USED');
+    }
 
-  const isValid = verifyOtpHash(cleanOtp, session.salt, session.otpHash);
-  if (!isValid) {
+    if (now > session.expiresAt) {
+      throw new HttpError(410, 'This Telegram OTP has expired. Please tap Resend OTP.', 'OTP_EXPIRED');
+    }
+
+    if (!session.deliveredAt) {
+      throw new HttpError(
+        400,
+        'Please open the Telegram Bot, tap Start, and share your phone number first to receive your code.',
+        'OTP_NOT_DELIVERED'
+      );
+    }
+
+    if (session.attempts >= MAX_OTP_ATTEMPTS) {
+      throw new HttpError(429, 'Too many failed attempts. Please request a fresh Telegram OTP.', 'MAX_ATTEMPTS');
+    }
+
     const nextAttempts = session.attempts + 1;
-    await store.updateSession(cleanSessionId, { attempts: nextAttempts });
+    await store.updateSession(session.sessionId, { attempts: nextAttempts });
     const remaining = Math.max(0, MAX_OTP_ATTEMPTS - nextAttempts);
     throw new HttpError(
       401,
@@ -431,7 +460,10 @@ export async function verifyTelegramOtp({
     );
   }
 
-  await store.updateSession(cleanSessionId, { consumed: true, pendingDeliveryOtp: null });
+  await store.updateSession(session.sessionId, { consumed: true, pendingDeliveryOtp: null });
+  if (session.sessionId !== cleanSessionId) {
+    await store.updateSession(cleanSessionId, { consumed: true, pendingDeliveryOtp: null });
+  }
 
   const resolvedFirstName = session.telegramFirstName || '';
   const resolvedLastName = session.telegramLastName || '';

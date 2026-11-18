@@ -44,7 +44,6 @@ function createFirestoreOtpStore(db) {
     async getLatestPendingSessionByPhone(phoneNumber, nowMs) {
       const snap = await sessionsCol
         .where('phoneNumber', '==', phoneNumber)
-        .limit(10)
         .get();
       let latest = null;
       for (const doc of snap.docs) {
@@ -56,6 +55,20 @@ function createFirestoreOtpStore(db) {
         }
       }
       return latest;
+    },
+    async getRecentDeliveredSessionsByPhone(phoneNumber, nowMs) {
+      const snap = await sessionsCol
+        .where('phoneNumber', '==', phoneNumber)
+        .get();
+      const valid = [];
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        if (!data.consumed && data.deliveredAt && data.expiresAt >= nowMs) {
+          valid.push(data);
+        }
+      }
+      valid.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return valid;
     },
     async getPhoneLink(phoneNumber) {
       const snap = await linksCol.doc(phoneNumber).get();
