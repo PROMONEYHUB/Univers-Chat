@@ -41,6 +41,22 @@ function createFirestoreOtpStore(db) {
     async updateSession(sessionId, patch) {
       await sessionsCol.doc(sessionId).set(patch, { merge: true });
     },
+    async getLatestPendingSessionByPhone(phoneNumber, nowMs) {
+      const snap = await sessionsCol
+        .where('phoneNumber', '==', phoneNumber)
+        .limit(10)
+        .get();
+      let latest = null;
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        if (!data.consumed && data.pendingDeliveryOtp && data.expiresAt >= nowMs) {
+          if (!latest || (data.createdAt || 0) > (latest.createdAt || 0)) {
+            latest = data;
+          }
+        }
+      }
+      return latest;
+    },
     async getPhoneLink(phoneNumber) {
       const snap = await linksCol.doc(phoneNumber).get();
       return snap.exists ? snap.data() : null;
@@ -149,6 +165,14 @@ function createFirebaseUserUpserter(auth, db) {
 export function createApp({ store, telegramApi, upsertUser }) {
   const app = express();
   app.use(express.json({ limit: '64kb' }));
+
+  app.get('/', (_req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'univers-chat-telegram-otp-bot',
+      health: '/health',
+    });
+  });
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'univers-chat-telegram-otp-bot' });

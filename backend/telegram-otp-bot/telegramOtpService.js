@@ -206,12 +206,21 @@ export async function requestTelegramOtp({
   };
 }
 
+const SHARE_CONTACT_KEYBOARD = {
+  keyboard: [[{ text: '📱 Share My Phone Number', request_contact: true }]],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+  is_persistent: true,
+};
+
 /**
  * Step 2 (Telegram Bot Webhook / Polling Update Handler):
  * Handles:
  *  - `/start verify_<sessionId>` -> prompts 1-tap "Share My Phone Number" keyboard button
- *  - `message.contact` -> verifies anti-spoofing (`contact.user_id === from.id`), checks phone match,
- *    saves permanent `phone -> chatId` link, wipes pending plaintext OTP, and sends the 6-digit OTP.
+ *  - `/start` (opened directly) -> ALSO shows the 1-tap "Share My Phone Number" button so users
+ *    can link their phone number immediately or receive a pending OTP requested in the app
+ *  - `message.contact` -> verifies anti-spoofing (`contact.user_id === from.id`), links
+ *    `phone -> chatId`, and delivers any matching pending 6-digit OTP immediately.
  */
 export async function handleTelegramUpdate({
   update,
@@ -226,16 +235,17 @@ export async function handleTelegramUpdate({
   const fromId = message.from?.id;
   const text = String(message.text || '').trim();
 
-  // Case 1: Deep-linked /start verify_<sessionId>
+  // Case 1: Deep-linked /start verify_<sessionId> OR plain /start
   if (text.startsWith('/start')) {
     const payload = text.split(/\s+/)[1] || '';
     if (!payload.startsWith('verify_')) {
       await telegramApi.sendMessage(
         chatId,
         `👋 Welcome to <b>Univers Chat OTP Bot</b>!\n\n` +
-          `Open the <b>Univers Chat</b> app, enter your phone number, and tap <b>Get OTP on Telegram</b> to receive your instant verification code.`
+          `Tap <b>📱 Share My Phone Number</b> below to link your Telegram account for instant, free 6-digit Univers Chat login codes.`,
+        { reply_markup: SHARE_CONTACT_KEYBOARD }
       );
-      return { handled: true, action: 'welcome' };
+      return { handled: true, action: 'welcome_request_contact' };
     }
 
     const sessionId = payload.slice('verify_'.length).trim();
@@ -243,7 +253,9 @@ export async function handleTelegramUpdate({
     if (!session || session.consumed || nowMs() > session.expiresAt) {
       await telegramApi.sendMessage(
         chatId,
-        `⏱ This verification link has expired. Please return to <b>Univers Chat</b> and tap <b>Resend OTP</b>.`
+        `⏱ This verification link has expired.\n\n` +
+          `Tap <b>📱 Share My Phone Number</b> below to link your account, then tap <b>Resend OTP</b> in <b>Univers Chat</b>.`,
+        { reply_markup: SHARE_CONTACT_KEYBOARD }
       );
       return { handled: true, action: 'expired_link' };
     }
@@ -253,13 +265,7 @@ export async function handleTelegramUpdate({
       chatId,
       `🔐 <b>Univers Chat Verification</b>\n\n` +
         `Tap the button below to confirm your phone number (<b>${session.phoneNumber}</b>) and receive your 6-digit OTP.`,
-      {
-        reply_markup: {
-          keyboard: [[{ text: '📱 Share My Phone Number', request_contact: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      }
+      { reply_markup: SHARE_CONTACT_KEYBOARD }
     );
     return { handled: true, action: 'requested_contact', sessionId };
   }
@@ -271,48 +277,45 @@ export async function handleTelegramUpdate({
     if (!fromId || contact.user_id !== fromId) {
       await telegramApi.sendMessage(
         chatId,
-        `⚠️ Please use the <b>Share My Phone Number</b> button so Telegram verifies your own account number.`,
-        { reply_markup: { remove_keyboard: true } }
+        `⚠️ Please tap the <b>📱 Share My Phone Number</b> button at the bottom so Telegram verifies your own account number.`,
+        { reply_markup: SHARE_CONTACT_KEYBOARD }
       );
       return { handled: true, action: 'rejected_spoofed_contact' };
     }
 
     const sharedPhone = normalizeE164Phone(contact.phone_number);
-    const pendingSessionId = await store.getChatPendingSession(chatId);
-    const session = pendingSessionId ? await store.getSession(pendingSessionId) : null;
-
-    if (!session || session.consumed || nowMs() > session.expiresAt) {
+    if (!sharedPhone) {
       await telegramApi.sendMessage(
         chatId,
-        `⏱ Your verification session expired. Please request a fresh OTP from <b>Univers Chat</b>.`,
-        { reply_markup: { remove_keyboard: true } }
+        `⚠️ Could not read a valid phone number from Telegram. Please try tapping <b>📱 Share My Phone Number</b> again.`,
+        { reply_markup: SHARE_CONTACT_KEYBOARD }
       );
-      return { handled: true, action: 'expired_session' };
-    }
-
-    if (sharedPhone !== session.phoneNumber) {
-      await telegramApi.sendMessage(
-        chatId,
-        `❌ Your Telegram number (<b>${sharedPhone}</b>) does not match the number you entered in Univers Chat (<b>${session.phoneNumber}</b>).\n\n` +
-          `Please enter <b>${sharedPhone}</b> in Univers Chat and try again.`,
-        { reply_markup: { remove_keyboard: true } }
-      );
-      return { handled: true, action: 'phone_mismatch' };
-    }
-
-    const otpToSend = session.pendingDeliveryOtp;
-    if (!otpToSend) {
-      await telegramApi.sendMessage(
-        chatId,
-        `ℹ️ Your code was already delivered. If you need a new one, tap <b>Resend OTP</b> in Univers Chat.`,
-        { reply_markup: { remove_keyboard: true } }
-      );
-      return { handled: true, action: 'already_delivered' };
+      return { handled: true, action: 'invalid_contact_phone' };
     }
 
     const firstName = String(contact.first_name || message.from?.first_name || '').trim();
     const lastName = String(contact.last_name || message.from?.last_name || '').trim();
 
+    const pendingSessionId = await store.getChatPendingSession(chatId);
+    let session = pendingSessionId ? await store.getSession(pendingSessionId) : null;
+
+    // If the user started via a deep-link session, verify phone matches that session
+    if (session && !session.consumed && nowMs() <= session.expiresAt) {
+      if (sharedPhone !== session.phoneNumber) {
+        await telegramApi.sendMessage(
+          chatId,
+          `❌ Your Telegram number (<b>${sharedPhone}</b>) does not match the number you entered in Univers Chat (<b>${session.phoneNumber}</b>).\n\n` +
+            `Please enter <b>${sharedPhone}</b> in Univers Chat and try again.`,
+          { reply_markup: { remove_keyboard: true } }
+        );
+        return { handled: true, action: 'phone_mismatch' };
+      }
+    } else if (typeof store.getLatestPendingSessionByPhone === 'function') {
+      // Fallback: user opened bot directly without deep-link after requesting OTP in the app
+      session = await store.getLatestPendingSessionByPhone(sharedPhone, nowMs());
+    }
+
+    // Always link this verified phone number -> chatId for instant future OTPs
     await store.savePhoneLink(sharedPhone, {
       chatId,
       telegramUserId: fromId,
@@ -320,24 +323,47 @@ export async function handleTelegramUpdate({
       lastName,
       linkedAt: nowMs(),
     });
-
-    await store.updateSession(session.sessionId, {
-      pendingDeliveryOtp: null,
-      deliveredAt: nowMs(),
-      telegramChatId: chatId,
-      telegramFirstName: firstName,
-      telegramLastName: lastName,
-    });
     await store.clearChatPendingSession(chatId);
 
+    // If there is an active, undelivered OTP session for this number, deliver the code right away
+    if (session && !session.consumed && nowMs() <= session.expiresAt && session.pendingDeliveryOtp) {
+      const otpToSend = session.pendingDeliveryOtp;
+      await store.updateSession(session.sessionId, {
+        pendingDeliveryOtp: null,
+        deliveredAt: nowMs(),
+        telegramChatId: chatId,
+        telegramFirstName: firstName,
+        telegramLastName: lastName,
+      });
+
+      await telegramApi.sendMessage(
+        chatId,
+        `✅ <b>Number Verified!</b>\n\n` +
+          `Your Univers Chat 6-digit login code is:\n<code>${otpToSend}</code>\n\n` +
+          `Tap the code to copy it and return to Univers Chat. Valid for 5 minutes.`,
+        { reply_markup: { remove_keyboard: true } }
+      );
+      return { handled: true, action: 'otp_delivered', sessionId: session.sessionId };
+    }
+
+    // No active OTP requested yet — confirm the number is now linked for instant direct delivery
     await telegramApi.sendMessage(
       chatId,
-      `✅ <b>Number Verified!</b>\n\n` +
-        `Your Univers Chat 6-digit login code is:\n<code>${otpToSend}</code>\n\n` +
-        `Tap the code to copy it and return to Univers Chat. Valid for 5 minutes.`,
+      `✅ <b>Phone Number Linked (${sharedPhone})!</b>\n\n` +
+        `Now open <b>Univers Chat</b>, enter <b>${sharedPhone}</b>, and tap <b>Get OTP on Telegram</b> — your 6-digit verification code will be sent right here automatically!`,
       { reply_markup: { remove_keyboard: true } }
     );
-    return { handled: true, action: 'otp_delivered', sessionId: session.sessionId };
+    return { handled: true, action: 'phone_linked', phoneNumber: sharedPhone };
+  }
+
+  // Case 3: Any other text message -> guide user with the contact button
+  if (text.length > 0) {
+    await telegramApi.sendMessage(
+      chatId,
+      `🔐 Tap <b>📱 Share My Phone Number</b> below to link your number with <b>Univers Chat</b>, then request your 6-digit OTP from the app.`,
+      { reply_markup: SHARE_CONTACT_KEYBOARD }
+    );
+    return { handled: true, action: 'prompted_contact' };
   }
 
   return { handled: false };

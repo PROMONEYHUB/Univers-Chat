@@ -320,3 +320,44 @@ test('security: rejects spoofed contact cards, mismatched phone numbers, wrong O
     (err) => err instanceof HttpError && err.status === 410 && err.code === 'OTP_EXPIRED'
   );
 });
+
+test('plain /start without deep link still displays Share My Phone Number button and links phone', async () => {
+  const store = createInMemoryStore();
+  const telegramApi = createFakeTelegramApi();
+
+  const startRes = await handleTelegramUpdate({
+    update: {
+      message: {
+        chat: { id: 444555 },
+        from: { id: 444555, first_name: 'Riya' },
+        text: '/start',
+      },
+    },
+    store,
+    telegramApi,
+  });
+
+  assert.equal(startRes.action, 'welcome_request_contact');
+  assert.equal(telegramApi.sentMessages.length, 1);
+  assert.equal(
+    telegramApi.sentMessages[0].extra.reply_markup.keyboard[0][0].request_contact,
+    true
+  );
+
+  const contactRes = await handleTelegramUpdate({
+    update: {
+      message: {
+        chat: { id: 444555 },
+        from: { id: 444555, first_name: 'Riya' },
+        contact: { user_id: 444555, phone_number: '+919900112233', first_name: 'Riya' },
+      },
+    },
+    store,
+    telegramApi,
+  });
+
+  assert.equal(contactRes.action, 'phone_linked');
+  const saved = await store.getPhoneLink('+919900112233');
+  assert.equal(saved.chatId, 444555);
+});
+
