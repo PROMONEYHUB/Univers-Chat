@@ -8,10 +8,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,9 +43,14 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -86,11 +95,16 @@ import com.example.data.model.Message
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.ImageUtils
+import com.example.ui.components.TelegramChatWallpaper
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatDayHeader
+import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.isSameCalendarDay
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.OnlinePresenceGreen
+import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramDarkBar
+import com.example.ui.theme.TelegramSteelBlue
 import com.example.ui.viewmodel.ChatRoomViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -113,13 +127,15 @@ fun ChatRoomScreen(
     onTogglePinConversation: (Conversation) -> Unit = {},
     onToggleMuteConversation: (Conversation) -> Unit = {},
     onToggleBlockUser: (targetUserId: String, blocked: Boolean) -> Unit = { _, _ -> },
+    onOpenUserProfile: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val haptics = rememberIosHaptics()
     val scope = rememberCoroutineScope()
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsTelegramDark.current
+    val topBarColor = if (isDark) TelegramDarkBar else TelegramSteelBlue
 
     val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
@@ -139,6 +155,7 @@ fun ChatRoomScreen(
     var inChatSearchQuery by rememberSaveable(viewModel.conversationId) { mutableStateOf("") }
     var isTrayOpen by remember { mutableStateOf(false) }
     var pendingGroupCallVideo by remember { mutableStateOf<Boolean?>(null) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val voiceRecorder = remember(context) { VoiceNoteRecorder(context) }
     val voicePlayer = remember(context) { VoiceNotePlayer(context) }
@@ -146,8 +163,9 @@ fun ChatRoomScreen(
     var isRecordingAudio by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(viewModel.conversationId) {
         onDispose {
+            viewModel.clearTypingStatus()
             voiceRecorder.cancel()
             voicePlayer.release()
         }
@@ -288,31 +306,85 @@ fun ChatRoomScreen(
     val isOtherBlocked = !isGroup && !isSelfChat && otherId != null && otherId in blockedUserIds
     val canCallInThread = conversation != null && !isSelfChat && !isOtherBlocked &&
         conversation.participantIds.any { it != viewModel.currentUserId }
-    val title = conversation?.displayTitleFor(viewModel.currentUserId) ?: "Chat"
-    val isOtherOnline = !isGroup && !isOtherBlocked && otherProfile?.isOnline == true
-    val subtitle = when {
-        conversation == null -> "Loading…"
-        isOtherBlocked -> "Blocked contact"
-        isGroup -> {
-            val base = "${conversation.participantIds.size} members"
-            if (conversation.topic.isNotBlank()) "$base · ${conversation.topic}" else base
+    val title = if (!isGroup && !isSelfChat && !otherProfile?.displayName.isNullOrBlank()) {
+        otherProfile!!.displayName
+    } else {
+        conversation?.displayTitleFor(viewModel.currentUserId) ?: "Chat"
+    }
+    val isOtherOnline = !isGroup && !isSelfChat && !isOtherBlocked && otherProfile?.isOnline == true
+
+    var typingClockMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(conversation?.typingBy, viewModel.currentUserId) {
+        val hasOthersTyping = conversation?.typingBy?.any { it.key != viewModel.currentUserId } == true
+        typingClockMs = System.currentTimeMillis()
+        while (hasOthersTyping) {
+            delay(1500L)
+            typingClockMs = System.currentTimeMillis()
         }
-        otherProfile != null -> {
-            if (otherProfile.isOnline) "Active now · ${otherProfile.statusVibe}" else "@${otherProfile.handle}"
-        }
-        else -> "Direct conversation"
+    }
+    LaunchedEffect(isOtherBlocked) {
+        if (isOtherBlocked) viewModel.clearTypingStatus()
     }
 
-    val chatCanvasColor = if (isDark) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface
+    val activeTypingIds = remember(conversation?.typingBy, blockedUserIds, typingClockMs) {
+        conversation?.activeTypingUserIds(
+            currentUserId = viewModel.currentUserId,
+            blockedUserIds = blockedUserIds,
+            nowMillis = typingClockMs
+        ).orEmpty()
+    }
+    val activeTypingNames = remember(activeTypingIds, peopleMap, conversation?.participantNames) {
+        activeTypingIds.map { uid ->
+            (peopleMap[uid]?.displayName ?: conversation?.participantNames?.get(uid) ?: "Someone")
+                .substringBefore(" ")
+                .ifBlank { "Someone" }
+        }
+    }
+    val typingLeadPhoto = remember(activeTypingIds, peopleMap, conversation?.participantPhotos) {
+        activeTypingIds.firstOrNull()?.let { uid ->
+            peopleMap[uid]?.photoUrl ?: conversation?.participantPhotos?.get(uid)
+        }
+    }
+    val typingHeaderSubtitle = remember(activeTypingNames, isGroup) {
+        when {
+            activeTypingNames.isEmpty() -> null
+            !isGroup -> "typing…"
+            activeTypingNames.size == 1 -> "${activeTypingNames[0]} is typing…"
+            activeTypingNames.size == 2 -> "${activeTypingNames[0]} and ${activeTypingNames[1]} are typing…"
+            else -> "${activeTypingNames[0]}, ${activeTypingNames[1]} +${activeTypingNames.size - 2} typing…"
+        }
+    }
+
+    val subtitle = when {
+        conversation == null -> "connecting…"
+        isOtherBlocked -> "blocked"
+        typingHeaderSubtitle != null -> typingHeaderSubtitle
+        isSelfChat -> "cloud storage & notes"
+        isGroup -> {
+            val base = "${conversation.participantIds.size} members"
+            if (conversation.topic.isNotBlank()) "$base, ${conversation.topic}" else base
+        }
+        otherProfile != null -> {
+            when {
+                otherProfile.isOnline -> "online"
+                otherProfile.lastSeenAt != null -> "last seen ${formatRelativeTime(otherProfile.lastSeenAt)}"
+                else -> "last seen recently"
+            }
+        }
+        else -> "last seen recently"
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = chatCanvasColor,
+        containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                    containerColor = topBarColor,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
                 ),
                 navigationIcon = {
                     if (showBackButton) {
@@ -325,8 +397,7 @@ fun ChatRoomScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Back to chats",
-                                tint = MaterialTheme.colorScheme.primary
+                                contentDescription = "Back to chats"
                             )
                         }
                     }
@@ -335,22 +406,25 @@ fun ChatRoomScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .clickable(enabled = conversation != null) {
                                 haptics.lightTap()
-                                if (isGroup) showGroupInfoDialog = true
-                                else showDirectInfoDialog = true
+                                when {
+                                    isGroup -> showGroupInfoDialog = true
+                                    !isSelfChat && otherId != null && onOpenUserProfile != null -> onOpenUserProfile(otherId)
+                                    else -> showDirectInfoDialog = true
+                                }
                             }
                             .padding(vertical = 4.dp, horizontal = 2.dp)
                     ) {
                         UserAvatar(
                             name = title,
-                            photoUrl = if (isGroup) null else (otherProfile?.photoUrl ?: conversation?.participantPhotos?.get(otherId)),
+                            photoUrl = if (isGroup || isSelfChat) null else (otherProfile?.photoUrl ?: conversation?.participantPhotos?.get(otherId)),
                             size = 40.dp,
                             isGroup = isGroup,
-                            showPresence = !isGroup && otherProfile != null,
-                            isOnline = isOtherOnline,
-                            showStoryRing = isOtherOnline
+                            isSavedMessages = isSelfChat,
+                            showPresence = !isGroup && !isSelfChat && otherProfile != null,
+                            isOnline = isOtherOnline
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
@@ -358,14 +432,18 @@ fun ChatRoomScreen(
                                 text = title,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
+                                color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = subtitle,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (isOtherOnline) OnlinePresenceGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (isOtherOnline) FontWeight.SemiBold else FontWeight.Normal,
+                                color = when {
+                                    typingHeaderSubtitle != null || isOtherOnline -> Color(0xFFB3E5FC)
+                                    else -> Color.White.copy(alpha = 0.78f)
+                                },
+                                fontWeight = if (typingHeaderSubtitle != null) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -373,112 +451,118 @@ fun ChatRoomScreen(
                     }
                 },
                 actions = {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .border(
-                                width = 0.6.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                                shape = CircleShape
-                            )
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (canCallInThread) {
-                                val triggerCall: (Boolean) -> Unit = { isVideo ->
-                                    val conv = conversation
-                                    if (conv != null) {
-                                        if (isGroup) {
-                                            pendingGroupCallVideo = isVideo
-                                        } else if (otherId != null) {
-                                            val peerName = otherProfile?.displayName
-                                                ?: conv.participantNames[otherId]
-                                                ?: title
-                                            val peerPhoto = otherProfile?.photoUrl
-                                                ?: conv.participantPhotos[otherId]
-                                            onStartCall(
-                                                CallTarget(
-                                                    userId = otherId,
-                                                    displayName = peerName,
-                                                    photoUrl = peerPhoto,
-                                                    conversationId = conv.id
-                                                ),
-                                                isVideo
-                                            )
-                                        }
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        triggerCall(false)
-                                    },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .testTag("voice_call_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Call,
-                                        contentDescription = "Start HD voice call",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        triggerCall(true)
-                                    },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .testTag("video_call_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Videocam,
-                                        contentDescription = "Start HD video call",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(19.dp)
+                    if (canCallInThread) {
+                        val triggerCall: (Boolean) -> Unit = { isVideo ->
+                            val conv = conversation
+                            if (conv != null) {
+                                if (isGroup) {
+                                    pendingGroupCallVideo = isVideo
+                                } else if (otherId != null) {
+                                    val peerName = otherProfile?.displayName
+                                        ?: conv.participantNames[otherId]
+                                        ?: title
+                                    val peerPhoto = otherProfile?.photoUrl
+                                        ?: conv.participantPhotos[otherId]
+                                    onStartCall(
+                                        CallTarget(
+                                            userId = otherId,
+                                            displayName = peerName,
+                                            photoUrl = peerPhoto,
+                                            conversationId = conv.id
+                                        ),
+                                        isVideo
                                     )
                                 }
                             }
-                            IconButton(
+                        }
+                        IconButton(
+                            onClick = {
+                                haptics.lightTap()
+                                triggerCall(false)
+                            },
+                            modifier = Modifier.testTag("voice_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Call,
+                                contentDescription = "Start HD voice call"
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                haptics.lightTap()
+                                triggerCall(true)
+                            },
+                            modifier = Modifier.testTag("video_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Videocam,
+                                contentDescription = "Start HD video call"
+                            )
+                        }
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = {
+                                haptics.lightTap()
+                                showOverflowMenu = true
+                            },
+                            modifier = Modifier.testTag("chat_overflow_menu_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "More options"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (showSearchBar) "Close Search" else "Search") },
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                                 onClick = {
-                                    haptics.lightTap()
+                                    showOverflowMenu = false
                                     if (showSearchBar) {
                                         showSearchBar = false
                                         inChatSearchQuery = ""
                                     } else {
                                         showSearchBar = true
                                     }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("chat_search_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = "Search conversation",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                }
+                            )
+                            if (conversation != null) {
+                                val isMuted = conversation.isMutedBy(viewModel.currentUserId)
+                                DropdownMenuItem(
+                                    text = { Text(if (isMuted) "Unmute" else "Mute notifications") },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onToggleMuteConversation(conversation)
+                                    }
                                 )
-                            }
-                            IconButton(
-                                onClick = {
-                                    haptics.lightTap()
-                                    if (isGroup) showGroupInfoDialog = true
-                                    else showDirectInfoDialog = true
-                                },
-                                enabled = conversation != null,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag(if (isGroup) "group_info_button" else "direct_info_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Info,
-                                    contentDescription = if (isGroup) "Channel info" else "Contact info",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                if (!isGroup && !isSelfChat && otherId != null && onOpenUserProfile != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("View Profile") },
+                                        leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onOpenUserProfile(otherId)
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(if (isGroup) "Group Info" else "Chat Info & Media") },
+                                    leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        if (isGroup) showGroupInfoDialog = true else showDirectInfoDialog = true
+                                    }
                                 )
                             }
                         }
@@ -487,314 +571,351 @@ fun ChatRoomScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            TelegramChatWallpaper()
 
-            AnimatedVisibility(visible = showSearchBar) {
-                ChatRoomSearchBar(
-                    query = inChatSearchQuery,
-                    matchCount = filteredMessages.size,
-                    onQueryChange = { inChatSearchQuery = it },
-                    onClose = {
-                        showSearchBar = false
-                        inChatSearchQuery = ""
-                    }
-                )
-            }
-
-            if (conversation != null && !conversation.pinnedMessageId.isNullOrBlank()) {
-                PinnedMessageBanner(
-                    senderName = conversation.pinnedMessageSenderName.orEmpty(),
-                    preview = conversation.pinnedMessagePreview.orEmpty(),
-                    onJumpToPinned = {
-                        val idx = filteredMessages.indexOfFirst { it.id == conversation.pinnedMessageId }
-                        if (idx >= 0) {
-                            scope.launch { listState.animateScrollToItem(idx) }
-                        } else {
-                            Toast.makeText(context, "Pinned message is not in current view.", Toast.LENGTH_SHORT).show()
+            Column(modifier = Modifier.fillMaxSize()) {
+                AnimatedVisibility(visible = showSearchBar) {
+                    ChatRoomSearchBar(
+                        query = inChatSearchQuery,
+                        matchCount = filteredMessages.size,
+                        onQueryChange = { inChatSearchQuery = it },
+                        onClose = {
+                            showSearchBar = false
+                            inChatSearchQuery = ""
                         }
-                    },
-                    onUnpin = {
-                        viewModel.pinOrUnpinMessage(conversation, null)
-                    }
-                )
-            }
+                    )
+                }
 
-            AnimatedVisibility(visible = errorBanner != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (conversation != null && !conversation.pinnedMessageId.isNullOrBlank()) {
+                    PinnedMessageBanner(
+                        senderName = conversation.pinnedMessageSenderName.orEmpty(),
+                        preview = conversation.pinnedMessagePreview.orEmpty(),
+                        onJumpToPinned = {
+                            val idx = filteredMessages.indexOfFirst { it.id == conversation.pinnedMessageId }
+                            if (idx >= 0) {
+                                scope.launch { listState.animateScrollToItem(idx) }
+                            } else {
+                                Toast.makeText(context, "Pinned message is not in current view.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onUnpin = {
+                            viewModel.pinOrUnpinMessage(conversation, null)
+                        }
+                    )
+                }
+
+                AnimatedVisibility(visible = errorBanner != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = errorBanner.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = viewModel::clearErrorBanner) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Dismiss error")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = errorBanner.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = viewModel::clearErrorBanner) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Dismiss error")
+                            }
                         }
                     }
                 }
-            }
 
-            // Crisp iMessage Conversation Stream
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(chatCanvasColor)
-            ) {
-                when (val state = messagesState) {
-                    is UiState.Loading -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    when (val state = messagesState) {
+                        is UiState.Loading -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Color.White)
+                            }
                         }
-                    }
 
-                    is UiState.Error -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize().padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = state.message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-
-                    is UiState.Success -> {
-                        if (filteredMessages.isEmpty()) {
-                            ChatRoomEmptyState(
-                                isSearchFiltered = showSearchBar && inChatSearchQuery.isNotBlank(),
-                                searchQuery = inChatSearchQuery
-                            )
-                        } else {
-                            LazyColumn(
-                                state = listState,
-                                contentPadding = PaddingValues(vertical = 12.dp),
-                                modifier = Modifier.fillMaxSize()
+                        is UiState.Error -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize().padding(24.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                itemsIndexed(filteredMessages, key = { _, msg -> msg.id }) { index, msg ->
-                                    val prev = filteredMessages.getOrNull(index - 1)
-                                    val next = filteredMessages.getOrNull(index + 1)
-                                    val showDayHeader = prev == null || !isSameCalendarDay(prev.createdAt, msg.createdAt)
-                                    val isFirstInCluster = showDayHeader || !areClusteredMessages(prev, msg)
-                                    val isLastInCluster = next == null ||
-                                        !isSameCalendarDay(msg.createdAt, next.createdAt) ||
-                                        !areClusteredMessages(msg, next)
-
-                                    if (showDayHeader) {
-                                        DayDividerPill(label = formatDayHeader(msg.createdAt))
-                                    }
-
-                                    MessageBubble(
-                                        message = msg,
-                                        isOwnMessage = msg.senderId == viewModel.currentUserId,
-                                        isGroup = isGroup,
-                                        currentUserId = viewModel.currentUserId,
-                                        isFirstInCluster = isFirstInCluster,
-                                        isLastInCluster = isLastInCluster,
-                                        onLongPressOrTapActions = { selectedMessageForActions = msg },
-                                        onToggleReaction = { emoji -> viewModel.toggleReaction(msg, emoji) },
-                                        onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
-                                        onOpenImage = { bmp ->
-                                            lightboxState = Triple(bmp, msg.senderName, msg.text)
-                                        },
-                                        voicePlaybackState = voicePlaybackState,
-                                        onToggleVoicePlayback = { voiceMsg ->
-                                            val encoded = voiceMsg.audioBase64
-                                            if (!encoded.isNullOrBlank()) {
-                                                voicePlayer.togglePlayback(voiceMsg.id, encoded)
-                                            }
-                                        }
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer
+                                ) {
+                                    Text(
+                                        text = state.message,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(16.dp)
                                     )
                                 }
                             }
                         }
-                    }
-                }
 
-                JumpToLatestButton(
-                    visible = showJumpToBottom,
-                    onClick = {
-                        scope.launch {
-                            if (filteredMessages.isNotEmpty()) {
-                                listState.animateScrollToItem(filteredMessages.lastIndex)
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 14.dp, bottom = 12.dp)
-                )
-            }
+                        is UiState.Success -> {
+                            if (filteredMessages.isEmpty()) {
+                                ChatRoomEmptyState(
+                                    isSearchFiltered = showSearchBar && inChatSearchQuery.isNotBlank(),
+                                    searchQuery = inChatSearchQuery
+                                )
+                            } else {
+                                LazyColumn(
+                                    state = listState,
+                                    contentPadding = PaddingValues(vertical = 10.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredMessages, key = { _, msg -> msg.id }) { index, msg ->
+                                        val prev = filteredMessages.getOrNull(index - 1)
+                                        val next = filteredMessages.getOrNull(index + 1)
+                                        val showDayHeader = prev == null || !isSameCalendarDay(prev.createdAt, msg.createdAt)
+                                        val isFirstInCluster = showDayHeader || !areClusteredMessages(prev, msg)
+                                        val isLastInCluster = next == null ||
+                                            !isSameCalendarDay(msg.createdAt, next.createdAt) ||
+                                            !areClusteredMessages(msg, next)
 
-            // Reply / Edit Banner
-            val bannerTarget = editingMessage ?: replyingTo
-            AnimatedVisibility(visible = bannerTarget != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                                .height(IntrinsicSize.Min),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(3.dp)
-                                    .fillMaxHeight()
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = if (editingMessage != null) {
-                                        "Editing message"
-                                    } else {
-                                        "Replying to ${replyingTo?.senderName ?: ""}"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = bannerTarget?.text?.ifBlank { "Photo / Poll attachment" }.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    haptics.lightTap()
-                                    if (editingMessage != null) draftText = ""
-                                    viewModel.setEditingTarget(null)
-                                    viewModel.setReplyTarget(null)
+                                        if (showDayHeader) {
+                                            DayDividerPill(label = formatDayHeader(msg.createdAt))
+                                        }
+
+                                        val liveSenderProfile = if (msg.senderId == viewModel.currentUserId) {
+                                            currentUserProfile
+                                        } else {
+                                            peopleMap[msg.senderId]
+                                        }
+                                        val displayMsg = if (liveSenderProfile != null) {
+                                            msg.copy(
+                                                senderName = liveSenderProfile.displayName.ifBlank { msg.senderName },
+                                                senderPhotoUrl = liveSenderProfile.photoUrl.ifBlank { msg.senderPhotoUrl }
+                                            )
+                                        } else {
+                                            msg
+                                        }
+
+                                        MessageBubble(
+                                            message = displayMsg,
+                                            isOwnMessage = msg.senderId == viewModel.currentUserId,
+                                            isGroup = isGroup,
+                                            currentUserId = viewModel.currentUserId,
+                                            isFirstInCluster = isFirstInCluster,
+                                            isLastInCluster = isLastInCluster,
+                                            onLongPressOrTapActions = { selectedMessageForActions = msg },
+                                            onToggleReaction = { emoji -> viewModel.toggleReaction(msg, emoji) },
+                                            onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
+                                            onOpenImage = { bmp ->
+                                                lightboxState = Triple(bmp, msg.senderName, msg.text)
+                                            },
+                                            voicePlaybackState = voicePlaybackState,
+                                            onToggleVoicePlayback = { voiceMsg ->
+                                                val encoded = voiceMsg.audioBase64
+                                                if (!encoded.isNullOrBlank()) {
+                                                    voicePlayer.togglePlayback(voiceMsg.id, encoded)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
+                            }
+                        }
+                    }
+
+                    JumpToLatestButton(
+                        visible = showJumpToBottom,
+                        onClick = {
+                            scope.launch {
+                                if (filteredMessages.isNotEmpty()) {
+                                    listState.animateScrollToItem(filteredMessages.lastIndex)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 14.dp, bottom = 12.dp)
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = activeTypingNames.isNotEmpty() && !isOtherBlocked,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    TypingIndicatorBubble(
+                        typerNames = activeTypingNames,
+                        typerPhotoUrl = typingLeadPhoto,
+                        isGroup = isGroup
+                    )
+                }
+
+                val bannerTarget = editingMessage ?: replyingTo
+                AnimatedVisibility(visible = bannerTarget != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .height(IntrinsicSize.Min),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Cancel reply or edit")
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .fillMaxHeight()
+                                        .clip(CircleShape)
+                                        .background(TelegramBlue)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (editingMessage != null) {
+                                            "Edit message"
+                                        } else {
+                                            "Reply to ${replyingTo?.senderName ?: ""}"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TelegramBlue
+                                    )
+                                    Text(
+                                        text = bannerTarget?.text?.ifBlank { "Photo / Voice / Poll" }.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        if (editingMessage != null) draftText = ""
+                                        viewModel.setEditingTarget(null)
+                                        viewModel.setReplyTarget(null)
+                                    }
+                                ) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Cancel reply or edit")
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (isOtherBlocked && otherId != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (isOtherBlocked && otherId != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Block,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "You blocked this contact",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                        TextButton(
-                            onClick = { onToggleBlockUser(otherId, false) },
-                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-                        ) {
-                            Text("Unblock", fontWeight = FontWeight.Bold)
+                        Column {
+                            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Block,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "You blocked this user",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { onToggleBlockUser(otherId, false) },
+                                    modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                                ) {
+                                    Text("UNBLOCK", fontWeight = FontWeight.Bold, color = TelegramBlue)
+                                }
+                            }
                         }
                     }
-                }
-            } else {
-                // Expandable iPhone Quick Options Tray
-                IosQuickInsertTray(
-                    visible = isTrayOpen && !isRecordingAudio,
-                    onPickPhoto = {
-                        isTrayOpen = false
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    onCreatePoll = {
-                        isTrayOpen = false
-                        showPollDialog = true
-                    },
-                    onRecordVoice = {
-                        isTrayOpen = false
-                        requestStartVoiceRecording()
-                    },
-                    onInsertQuickReply = { snippet ->
-                        draftText = if (draftText.isBlank()) snippet else "$draftText $snippet"
-                        isTrayOpen = false
-                    }
-                )
-
-                // Capsule iOS Composer Bar
-                IosMessageComposerBar(
-                    draftText = draftText,
-                    onDraftChange = { draftText = it },
-                    canInteract = conversation != null && currentUserProfile != null,
-                    isSending = isSending,
-                    isTrayOpen = isTrayOpen,
-                    onToggleTray = { isTrayOpen = !isTrayOpen },
-                    onPickPhoto = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    onOpenPoll = { showPollDialog = true },
-                    onSend = {
-                        val conv = conversation ?: return@IosMessageComposerBar
-                        val profile = currentUserProfile ?: return@IosMessageComposerBar
-                        if (draftText.trim().isEmpty()) return@IosMessageComposerBar
-                        haptics.success()
-                        viewModel.sendOrEditText(conv, profile, draftText) {
-                            draftText = ""
+                } else {
+                    IosQuickInsertTray(
+                        visible = isTrayOpen && !isRecordingAudio,
+                        onPickPhoto = {
+                            isTrayOpen = false
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        onCreatePoll = {
+                            isTrayOpen = false
+                            showPollDialog = true
+                        },
+                        onRecordVoice = {
+                            isTrayOpen = false
+                            requestStartVoiceRecording()
+                        },
+                        onInsertQuickReply = { snippet ->
+                            val next = if (draftText.isBlank()) snippet else "$draftText $snippet"
+                            draftText = next
+                            viewModel.onComposerTextChanged(next, conversation, isOtherBlocked)
                             isTrayOpen = false
                         }
-                    },
-                    isRecordingAudio = isRecordingAudio,
-                    recordingSeconds = recordingSeconds,
-                    onStartVoiceRecord = requestStartVoiceRecording,
-                    onCancelVoiceRecord = {
-                        isRecordingAudio = false
-                        voiceRecorder.cancel()
-                    },
-                    onSendVoiceRecord = finishAndSendVoiceRecording
-                )
+                    )
+
+                    IosMessageComposerBar(
+                        draftText = draftText,
+                        onDraftChange = { next ->
+                            draftText = next
+                            viewModel.onComposerTextChanged(next, conversation, isOtherBlocked)
+                        },
+                        canInteract = conversation != null && currentUserProfile != null,
+                        isSending = isSending,
+                        isTrayOpen = isTrayOpen,
+                        onToggleTray = { isTrayOpen = !isTrayOpen },
+                        onPickPhoto = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        onOpenPoll = { showPollDialog = true },
+                        onSend = {
+                            val conv = conversation ?: return@IosMessageComposerBar
+                            val profile = currentUserProfile ?: return@IosMessageComposerBar
+                            if (draftText.trim().isEmpty()) return@IosMessageComposerBar
+                            haptics.success()
+                            viewModel.sendOrEditText(conv, profile, draftText) {
+                                draftText = ""
+                                isTrayOpen = false
+                            }
+                        },
+                        isRecordingAudio = isRecordingAudio,
+                        recordingSeconds = recordingSeconds,
+                        onStartVoiceRecord = requestStartVoiceRecording,
+                        onCancelVoiceRecord = {
+                            isRecordingAudio = false
+                            voiceRecorder.cancel()
+                        },
+                        onSendVoiceRecord = finishAndSendVoiceRecording
+                    )
+                }
             }
         }
     }
@@ -870,101 +991,125 @@ fun ChatRoomScreen(
             onDismiss = { showPollDialog = false },
             onCreatePoll = { question, options ->
                 showPollDialog = false
-                haptics.success()
                 viewModel.sendPoll(conversation, currentUserProfile, question, options) {}
             }
         )
     }
 
-    if (showGroupInfoDialog && conversation != null) {
+    if (showGroupInfoDialog && conversation != null && isGroup) {
         GroupInfoDialog(
             conversation = conversation,
-            allPeople = allPeople,
+            allPeople = allPeople.filter { it.userId !in blockedUserIds },
             currentUserId = viewModel.currentUserId,
             onDismiss = { showGroupInfoDialog = false },
             onUpdateGroupInfo = { newTitle, newTopic ->
                 viewModel.updateGroupInfo(conversation, newTitle, newTopic)
+                showGroupInfoDialog = false
             },
             onAddMembers = { members ->
                 viewModel.addMembers(conversation, members)
             },
             onLeaveGroup = {
-                showGroupInfoDialog = false
-                viewModel.leaveGroup(conversation, onLeft = onBack)
+                viewModel.leaveGroup(conversation) {
+                    showGroupInfoDialog = false
+                    onBack()
+                }
             },
             onDeleteChannel = {
-                showGroupInfoDialog = false
-                viewModel.deleteConversation(conversation, onDeleted = onBack)
+                viewModel.deleteConversation(conversation) {
+                    showGroupInfoDialog = false
+                    onBack()
+                }
             },
             photoMessages = photoMessages,
-            onOpenPhoto = { bmp, sender, caption ->
+            onOpenPhoto = { bmp, sender, cap ->
                 showGroupInfoDialog = false
-                lightboxState = Triple(bmp, sender, caption)
+                lightboxState = Triple(bmp, sender, cap)
             },
             onTogglePin = { onTogglePinConversation(conversation) },
             onToggleMute = { onToggleMuteConversation(conversation) }
         )
     }
 
-    if (showDirectInfoDialog && conversation != null) {
-        val conv = conversation
-        val directTarget = if (!isSelfChat && otherId != null) {
-            CallTarget(
-                userId = otherId,
-                displayName = otherProfile?.displayName ?: conv.participantNames[otherId] ?: title,
-                photoUrl = otherProfile?.photoUrl ?: conv.participantPhotos[otherId],
-                conversationId = conv.id
-            )
-        } else null
-
+    if (showDirectInfoDialog && conversation != null && !isGroup) {
         DirectChatInfoDialog(
-            conversation = conv,
-            otherProfile = otherProfile ?: currentUserProfile.takeIf { otherId == null || otherId == viewModel.currentUserId },
+            conversation = conversation,
+            otherProfile = otherProfile,
             currentUserId = viewModel.currentUserId,
             messageCount = messages.size,
             onDismiss = { showDirectInfoDialog = false },
             onDeleteConversation = {
-                showDirectInfoDialog = false
-                viewModel.deleteConversation(conv, onDeleted = onBack)
-            },
-            onStartVoiceCall = directTarget?.let { target -> { onStartCall(target, false) } },
-            onStartVideoCall = directTarget?.let { target -> { onStartCall(target, true) } },
-            photoMessages = photoMessages,
-            onOpenPhoto = { bmp, sender, caption ->
-                showDirectInfoDialog = false
-                lightboxState = Triple(bmp, sender, caption)
-            },
-            onTogglePin = { onTogglePinConversation(conv) },
-            onToggleMute = { onToggleMuteConversation(conv) },
-            isOtherBlocked = isOtherBlocked,
-            onToggleBlock = otherId?.takeIf { !isSelfChat }?.let { targetUid ->
-                {
-                    onToggleBlockUser(targetUid, !isOtherBlocked)
+                viewModel.deleteConversation(conversation) {
+                    showDirectInfoDialog = false
+                    onBack()
                 }
-            }
+            },
+            onStartVoiceCall = if (canCallInThread && otherId != null) {
+                {
+                    val peerName = otherProfile?.displayName ?: conversation.participantNames[otherId] ?: title
+                    val peerPhoto = otherProfile?.photoUrl ?: conversation.participantPhotos[otherId]
+                    onStartCall(
+                        CallTarget(
+                            userId = otherId,
+                            displayName = peerName,
+                            photoUrl = peerPhoto,
+                            conversationId = conversation.id
+                        ),
+                        false
+                    )
+                }
+            } else null,
+            onStartVideoCall = if (canCallInThread && otherId != null) {
+                {
+                    val peerName = otherProfile?.displayName ?: conversation.participantNames[otherId] ?: title
+                    val peerPhoto = otherProfile?.photoUrl ?: conversation.participantPhotos[otherId]
+                    onStartCall(
+                        CallTarget(
+                            userId = otherId,
+                            displayName = peerName,
+                            photoUrl = peerPhoto,
+                            conversationId = conversation.id
+                        ),
+                        true
+                    )
+                }
+            } else null,
+            photoMessages = photoMessages,
+            onOpenPhoto = { bmp, sender, cap ->
+                showDirectInfoDialog = false
+                lightboxState = Triple(bmp, sender, cap)
+            },
+            onTogglePin = { onTogglePinConversation(conversation) },
+            onToggleMute = { onToggleMuteConversation(conversation) },
+            isOtherBlocked = isOtherBlocked,
+            onToggleBlock = if (!isSelfChat && otherId != null) {
+                { onToggleBlockUser(otherId, !isOtherBlocked) }
+            } else null
         )
     }
 
-    val groupCallVideo = pendingGroupCallVideo
-    if (groupCallVideo != null && conversation != null) {
-        GroupCallMemberPickerDialog(
-            conversation = conversation,
-            currentUserId = viewModel.currentUserId,
-            isVideoCall = groupCallVideo,
-            onDismiss = { pendingGroupCallVideo = null },
-            onSelectMember = { memberId, memberName, memberPhoto ->
-                pendingGroupCallVideo = null
-                onStartCall(
-                    CallTarget(
-                        userId = memberId,
-                        displayName = memberName,
-                        photoUrl = memberPhoto,
-                        conversationId = conversation.id
-                    ),
-                    groupCallVideo
-                )
-            }
-        )
+    pendingGroupCallVideo?.let { isVideo ->
+        val conv = conversation
+        if (conv != null) {
+            GroupCallMemberPickerDialog(
+                conversation = conv,
+                currentUserId = viewModel.currentUserId,
+                isVideoCall = isVideo,
+                onDismiss = { pendingGroupCallVideo = null },
+                onSelectMember = { memberId, memberName, memberPhoto ->
+                    pendingGroupCallVideo = null
+                    onStartCall(
+                        CallTarget(
+                            userId = memberId,
+                            displayName = memberName,
+                            photoUrl = memberPhoto,
+                            conversationId = conv.id
+                        ),
+                        isVideo
+                    )
+                }
+            )
+        }
     }
 }
 

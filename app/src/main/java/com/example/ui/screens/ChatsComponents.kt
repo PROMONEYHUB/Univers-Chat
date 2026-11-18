@@ -5,16 +5,19 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,12 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.ArrowOutward
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DoneAll
-import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NotificationsOff
@@ -38,7 +37,9 @@ import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -63,290 +64,184 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UserProfile
-import com.example.ui.components.GlassIconBadge
-import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosRed
-import com.example.ui.theme.OnlinePresenceGreen
-import com.example.ui.theme.PulseBrushes
+import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramDarkBar
+import com.example.ui.theme.TelegramGreen
+import com.example.ui.theme.TelegramSteelBlue
+import com.example.ui.theme.TelegramTickGreen
+import com.example.ui.viewmodel.ChatFilter
 
 @Composable
-fun ActivePeopleStoryStrip(
+fun TelegramFolderTabsBar(
+    selectedFilter: ChatFilter,
+    unreadConvCount: Int,
+    onSelectFilter: (ChatFilter) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptics = rememberIosHaptics()
+    val isDark = LocalIsTelegramDark.current
+    val barBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
+
+    Surface(
+        color = barBg,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(ChatFilter.entries, key = { it.name }) { filter ->
+                val isSelected = filter == selectedFilter
+                val label = if (filter == ChatFilter.DIRECT) "Personal" else filter.label
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 68.dp, minHeight = 44.dp)
+                        .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                        .clickable {
+                            haptics.selectionTick()
+                            onSelectFilter(filter)
+                        }
+                        .padding(horizontal = 12.dp)
+                        .testTag("filter_chip_${filter.name.lowercase()}")
+                ) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.72f)
+                        )
+                        if (filter == ChatFilter.UNREAD && unreadConvCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.25f)
+                            ) {
+                                Text(
+                                    text = if (unreadConvCount > 99) "99+" else unreadConvCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) TelegramBlue else Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(42.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                            .background(if (isSelected) Color.White else Color.Transparent)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TelegramStoriesRow(
     people: List<UserProfile>,
-    onNewGroupClick: () -> Unit,
     onPersonClick: (UserProfile) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (people.isEmpty()) return
     val haptics = rememberIosHaptics()
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        item(key = "quick_new_group") {
-            GlassmorphismCard(
-                shape = RoundedCornerShape(22.dp),
-                highlighted = true,
-                onClick = {
-                    haptics.lightTap()
-                    onNewGroupClick()
-                },
-                modifier = Modifier
-                    .width(76.dp)
-                    .height(94.dp)
-            ) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(people, key = { it.userId }) { person ->
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(PulseBrushes.BrandGradient),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.GroupAdd,
-                            contentDescription = "New channel",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Channel",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        items(people, key = { it.userId }) { person ->
-            GlassmorphismCard(
-                shape = RoundedCornerShape(22.dp),
-                highlighted = person.isOnline,
-                onClick = {
-                    haptics.lightTap()
-                    onPersonClick(person)
-                },
-                modifier = Modifier
-                    .width(76.dp)
-                    .height(94.dp)
-            ) {
-                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(contentAlignment = Alignment.BottomCenter) {
-                        UserAvatar(
-                            name = person.displayName,
-                            photoUrl = person.photoUrl,
-                            size = 46.dp,
-                            showPresence = true,
-                            isOnline = person.isOnline,
-                            showStoryRing = person.isOnline
-                        )
-                        if (person.isOnline) {
-                            Surface(
-                                shape = CircleShape,
-                                color = OnlinePresenceGreen,
-                                modifier = Modifier
-                                    .offset(y = 4.dp)
-                                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                            ) {
-                                Text(
-                                    text = "LIVE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 0.5.dp)
-                                )
-                            }
+                        .width(62.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            haptics.lightTap()
+                            onPersonClick(person)
                         }
-                    }
-                    Spacer(modifier = Modifier.height(7.dp))
+                        .padding(vertical = 2.dp)
+                ) {
+                    UserAvatar(
+                        name = person.displayName,
+                        photoUrl = person.photoUrl,
+                        size = 52.dp,
+                        showPresence = true,
+                        isOnline = person.isOnline,
+                        showStoryRing = person.isOnline
+                    )
+                    Spacer(modifier = Modifier.height(5.dp))
                     Text(
                         text = person.displayName.substringBefore(" "),
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = if (person.isOnline) FontWeight.Bold else FontWeight.Medium,
+                        fontWeight = if (person.isOnline) FontWeight.SemiBold else FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
         }
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SpotlightCarousel(
-    conversations: List<Conversation>,
-    currentUserId: String,
-    peopleMap: Map<String, UserProfile>,
-    onOpenConversation: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (conversations.isEmpty()) return
-    val haptics = rememberIosHaptics()
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            GlassIconBadge(
-                icon = Icons.Rounded.Bolt,
-                contentDescription = null,
-                size = 22.dp,
-                iconSize = 13.dp
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "JUMP BACK IN",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(conversations, key = { "spot_${it.id}" }) { conversation ->
-                val isGroup = conversation.type == Conversation.TYPE_GROUP
-                val title = conversation.displayTitleFor(currentUserId)
-                val otherId = conversation.otherParticipantId(currentUserId)
-                val otherProfile = otherId?.let { peopleMap[it] }
-                val unreadCount = conversation.unreadCountFor(currentUserId)
-                val avatarUrl = when {
-                    isGroup -> null
-                    otherProfile != null -> otherProfile.photoUrl
-                    otherId != null -> conversation.participantPhotos[otherId]
-                    else -> null
-                }
-                val preview = when {
-                    conversation.lastMessageText.isBlank() -> if (isGroup) "Channel active · Tap to chat" else "Tap to start chatting"
-                    conversation.lastMessageSenderId == currentUserId -> "You: ${conversation.lastMessageText}"
-                    else -> conversation.lastMessageText
-                }
-
-                GlassmorphismCard(
-                    shape = RoundedCornerShape(24.dp),
-                    highlighted = unreadCount > 0L,
-                    onClick = {
-                        haptics.lightTap()
-                        onOpenConversation(conversation.id)
-                    },
-                    modifier = Modifier
-                        .width(222.dp)
-                        .testTag("spotlight_card_${conversation.id}")
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            UserAvatar(
-                                name = title,
-                                photoUrl = avatarUrl,
-                                size = 40.dp,
-                                isGroup = isGroup,
-                                showPresence = !isGroup && otherProfile != null,
-                                isOnline = otherProfile?.isOnline == true,
-                                showStoryRing = unreadCount > 0L
-                            )
-
-                            if (unreadCount > 0L) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(PulseBrushes.UnreadBadgeGradient)
-                                        .padding(horizontal = 9.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = if (unreadCount > 99L) "99+ new" else "$unreadCount new",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            } else {
-                                GlassIconBadge(
-                                    icon = Icons.Rounded.ArrowOutward,
-                                    contentDescription = "Open conversation",
-                                    size = 30.dp,
-                                    iconSize = 16.dp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = preview,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ModernConversationCard(
+fun TelegramConversationRow(
     conversation: Conversation,
     currentUserId: String,
     otherProfile: UserProfile?,
     isSelected: Boolean,
+    showBottomDivider: Boolean = true,
+    typingText: String? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
+    val haptics = rememberIosHaptics()
+    val isDark = LocalIsTelegramDark.current
     val isGroup = conversation.type == Conversation.TYPE_GROUP
-    val title = conversation.displayTitleFor(currentUserId)
+    val isSelfChat = !isGroup && conversation.participantIds.distinct().size <= 1
+    val title = if (!isGroup && !isSelfChat && !otherProfile?.displayName.isNullOrBlank()) {
+        otherProfile!!.displayName
+    } else {
+        conversation.displayTitleFor(currentUserId)
+    }
     val otherId = conversation.otherParticipantId(currentUserId)
     val avatarUrl = when {
-        isGroup -> null
+        isGroup || isSelfChat -> null
         otherProfile != null -> otherProfile.photoUrl
         otherId != null -> conversation.participantPhotos[otherId]
         else -> null
@@ -356,72 +251,53 @@ fun ModernConversationCard(
     val isMuted = conversation.isMutedBy(currentUserId)
     val isOutgoing = conversation.lastMessageSenderId == currentUserId && conversation.lastMessageText.isNotBlank()
     val timeText = formatRelativeTime(conversation.lastMessageAt ?: conversation.updatedAt ?: conversation.createdAt)
-    val preview = when {
-        conversation.lastMessageText.isBlank() -> if (isGroup) "Channel created · Say hello!" else "Say hello!"
-        isOutgoing -> conversation.lastMessageText
-        isGroup && conversation.lastMessageSenderName.isNotBlank() ->
-            "${conversation.lastMessageSenderName.substringBefore(" ")}: ${conversation.lastMessageText}"
-        else -> conversation.lastMessageText
-    }
-    val haptics = rememberIosHaptics()
     val isImagePreview = conversation.lastMessageType == Message.TYPE_IMAGE
     val isPollPreview = conversation.lastMessageType == Message.TYPE_POLL
     val isVoicePreview = conversation.lastMessageType == Message.TYPE_AUDIO
 
-    GlassmorphismCard(
-        shape = RoundedCornerShape(22.dp),
-        highlighted = isSelected || unreadCount > 0L || isPinned,
-        tintAlpha = when {
-            isSelected -> 0.62f
-            unreadCount > 0L -> 0.54f
-            else -> null
-        },
-        onClick = {
-            haptics.lightTap()
-            onClick()
-        },
-        onLongClick = {
-            haptics.impactMedium()
-            onLongClick()
-        },
+    val rowBg = when {
+        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.35f else 0.48f)
+        isPinned -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.25f else 0.30f)
+        else -> MaterialTheme.colorScheme.background
+    }
+
+    val previewText = when {
+        conversation.lastMessageText.isBlank() -> if (isGroup) "Group created" else if (isSelfChat) "Cloud notes & saved media" else "Tap to send a message"
+        else -> conversation.lastMessageText
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(rowBg)
+            .combinedClickable(
+                onClick = {
+                    haptics.lightTap()
+                    onClick()
+                },
+                onLongClick = {
+                    haptics.impactMedium()
+                    onLongClick()
+                }
+            )
             .testTag("conversation_card_${conversation.id}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 13.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(contentAlignment = Alignment.BottomEnd) {
-                UserAvatar(
-                    name = title,
-                    photoUrl = avatarUrl,
-                    size = 54.dp,
-                    isGroup = isGroup,
-                    showPresence = !isGroup && otherProfile != null,
-                    isOnline = otherProfile?.isOnline == true,
-                    showStoryRing = (!isGroup && otherProfile?.isOnline == true) || unreadCount > 0L
-                )
-                if (isGroup) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .offset(x = 2.dp, y = 2.dp)
-                            .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                    ) {
-                        Text(
-                            text = "${conversation.participantIds.size}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                        )
-                    }
-                }
-            }
+            UserAvatar(
+                name = title,
+                photoUrl = avatarUrl,
+                size = 54.dp,
+                isGroup = isGroup,
+                isSavedMessages = isSelfChat,
+                showPresence = !isGroup && !isSelfChat && otherProfile != null,
+                isOnline = otherProfile?.isOnline == true,
+                showStoryRing = false
+            )
 
             Spacer(modifier = Modifier.width(13.dp))
 
@@ -435,73 +311,55 @@ fun ModernConversationCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
+                        if (isGroup) {
+                            Icon(
+                                imageVector = Icons.Rounded.Groups,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                        }
                         Text(
                             text = title,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = if (unreadCount > 0L) FontWeight.ExtraBold else FontWeight.Bold,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (isGroup) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Groups,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "Channel",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
+                        if (isMuted) {
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.NotificationsOff,
+                                contentDescription = "Muted",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(15.dp)
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (isPinned) {
+                        if (isOutgoing && typingText == null) {
                             Icon(
-                                imageVector = Icons.Rounded.PushPin,
-                                contentDescription = "Pinned",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        if (isMuted) {
-                            Icon(
-                                imageVector = Icons.Rounded.NotificationsOff,
-                                contentDescription = "Muted",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
+                                imageVector = Icons.Rounded.DoneAll,
+                                contentDescription = "Sent",
+                                tint = if (isDark) MaterialTheme.colorScheme.primary else TelegramTickGreen,
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                         }
                         Text(
                             text = timeText,
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (unreadCount > 0L) FontWeight.Bold else FontWeight.Medium,
-                            color = if (unreadCount > 0L) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Icon(
-                            imageVector = Icons.Rounded.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
+                            color = if (unreadCount > 0L && !isMuted) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                 }
@@ -517,78 +375,107 @@ fun ModernConversationCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        if (isOutgoing && !isImagePreview && !isPollPreview && !isVoicePreview) {
-                            Icon(
-                                imageVector = Icons.Rounded.DoneAll,
-                                contentDescription = "Sent",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
+                        if (typingText != null) {
+                            TypingWaveDots(
+                                dotColor = MaterialTheme.colorScheme.primary,
+                                dotSize = 5.dp
                             )
-                            Spacer(modifier = Modifier.width(5.dp))
-                        }
-                        if (isImagePreview || isPollPreview || isVoicePreview) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = when {
-                                            isImagePreview -> Icons.Rounded.PhotoCamera
-                                            isVoicePreview -> Icons.Rounded.Mic
-                                            else -> Icons.Rounded.Poll
-                                        },
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = when {
-                                            isImagePreview -> "Photo"
-                                            isVoicePreview -> "Voice"
-                                            else -> "Poll"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
                             Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = typingText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            if (isImagePreview || isPollPreview || isVoicePreview) {
+                                Icon(
+                                    imageVector = when {
+                                        isImagePreview -> Icons.Rounded.PhotoCamera
+                                        isVoicePreview -> Icons.Rounded.Mic
+                                        else -> Icons.Rounded.Poll
+                                    },
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            val senderPrefix = when {
+                                isOutgoing && conversation.lastMessageText.isNotBlank() -> "You: "
+                                isGroup && conversation.lastMessageSenderName.isNotBlank() && conversation.lastMessageText.isNotBlank() ->
+                                    "${conversation.lastMessageSenderName.substringBefore(" ")}: "
+                                else -> ""
+                            }
+                            val formattedPreview = buildAnnotatedString {
+                                if (senderPrefix.isNotEmpty()) {
+                                    withStyle(
+                                        SpanStyle(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    ) {
+                                        append(senderPrefix)
+                                    }
+                                }
+                                append(previewText)
+                            }
+                            Text(
+                                text = formattedPreview,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Text(
-                            text = preview,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (unreadCount > 0L) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (unreadCount > 0L) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
 
-                    if (unreadCount > 0L) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(PulseBrushes.UnreadBadgeGradient)
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (unreadCount > 99L) "99+" else unreadCount.toString(),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    when {
+                        unreadCount > 0L -> {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isMuted) {
+                                    MaterialTheme.colorScheme.outline
+                                } else if (isDark) {
+                                    TelegramBlue
+                                } else {
+                                    TelegramGreen
+                                },
+                                modifier = Modifier.defaultMinSize(minWidth = 24.dp)
+                            ) {
+                                Text(
+                                    text = if (unreadCount > 99L) "99+" else unreadCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                        isPinned -> {
+                            Icon(
+                                imageVector = Icons.Rounded.PushPin,
+                                contentDescription = "Pinned",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 }
             }
+        }
+
+        if (showBottomDivider) {
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(start = 81.dp)
+            )
         }
     }
 }
@@ -601,6 +488,8 @@ fun SwipeToDeleteConversationItem(
     otherProfile: UserProfile?,
     isSelected: Boolean,
     isPendingDelete: Boolean,
+    showBottomDivider: Boolean = true,
+    typingText: String? = null,
     onOpen: () -> Unit,
     onLongPress: () -> Unit = {},
     onDeleteOrLeave: () -> Unit,
@@ -648,33 +537,23 @@ fun SwipeToDeleteConversationItem(
         backgroundContent = {
             val isTriggered = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
             val iconScale by animateFloatAsState(
-                targetValue = if (isTriggered) 1.18f else 0.92f,
+                targetValue = if (isTriggered) 1.15f else 0.92f,
                 label = "swipe_delete_icon_scale"
             )
             val bgAlpha by animateFloatAsState(
-                targetValue = if (isTriggered) 0.95f else 0.72f,
+                targetValue = if (isTriggered) 0.96f else 0.78f,
                 label = "swipe_delete_bg_alpha"
-            )
-            val borderColor by animateColorAsState(
-                targetValue = if (isTriggered) Color.White.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.35f),
-                label = "swipe_delete_border"
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(22.dp))
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
-                                IosRed.copy(alpha = bgAlpha * 0.78f),
+                                IosRed.copy(alpha = bgAlpha * 0.85f),
                                 IosRed.copy(alpha = bgAlpha)
                             )
                         )
-                    )
-                    .border(
-                        width = 0.9.dp,
-                        color = borderColor,
-                        shape = RoundedCornerShape(22.dp)
                     )
                     .padding(horizontal = 22.dp),
                 contentAlignment = Alignment.CenterEnd
@@ -695,7 +574,7 @@ fun SwipeToDeleteConversationItem(
                     )
                     Icon(
                         imageVector = if (isLeaveGroup) Icons.AutoMirrored.Rounded.ExitToApp else Icons.Rounded.DeleteOutline,
-                        contentDescription = if (isLeaveGroup) "Leave channel" else "Delete conversation",
+                        contentDescription = if (isLeaveGroup) "Leave group" else "Delete chat",
                         tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -703,11 +582,13 @@ fun SwipeToDeleteConversationItem(
             }
         }
     ) {
-        ModernConversationCard(
+        TelegramConversationRow(
             conversation = conversation,
             currentUserId = currentUserId,
             otherProfile = otherProfile,
             isSelected = isSelected,
+            showBottomDivider = showBottomDivider,
+            typingText = typingText,
             onClick = onOpen,
             onLongClick = onLongPress
         )
@@ -723,73 +604,66 @@ fun EmptyChatsView(
     val haptics = rememberIosHaptics()
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        GlassmorphismCard(
-            shape = RoundedCornerShape(28.dp),
-            highlighted = false,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.img_empty_chats),
-                    contentDescription = stringResource(R.string.empty_chats_desc),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(165.dp)
-                        .clip(RoundedCornerShape(20.dp)),
-                    contentScale = ContentScale.Crop
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = if (isFiltered) "No matching conversations" else stringResource(R.string.empty_chats_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = if (isFiltered) "Try clearing your search or switching tabs." else stringResource(R.string.empty_chats_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                if (!isFiltered) {
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = {
-                                haptics.lightTap()
-                                onStartDirect()
-                            },
-                            shape = CircleShape
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = null,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Direct Chat", fontWeight = FontWeight.Bold)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                haptics.lightTap()
-                                onCreateGroup()
-                            },
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("New Group", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+        Image(
+            painter = painterResource(id = R.drawable.img_empty_chats),
+            contentDescription = stringResource(R.string.empty_chats_desc),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(172.dp)
+                .clip(RoundedCornerShape(18.dp)),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Text(
+            text = if (isFiltered) "No matching chats" else stringResource(R.string.empty_chats_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = if (isFiltered) "Try a different search query or switch folder tabs." else stringResource(R.string.empty_chats_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        if (!isFiltered) {
+            Spacer(modifier = Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        haptics.lightTap()
+                        onStartDirect()
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TelegramBlue,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("New Message", fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = {
+                        haptics.lightTap()
+                        onCreateGroup()
+                    },
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("New Group", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

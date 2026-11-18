@@ -61,7 +61,7 @@
         },
         "photoUrl": {
           "type": "string",
-          "description": "Public avatar image URL from Google profile."
+          "description": "Public avatar image URL or compressed base64 JPEG data URI (max 60,000 chars)."
         },
         "statusVibe": {
           "type": "string",
@@ -171,6 +171,10 @@
         "pinnedMessageSenderName": {
           "type": "string",
           "description": "Optional sender name of the pinned message."
+        },
+        "typingBy": {
+          "type": "object",
+          "description": "Map of participant UID to server timestamp while actively composing a message."
         },
         "createdAt": {
           "type": "string",

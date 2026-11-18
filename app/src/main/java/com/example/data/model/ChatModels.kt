@@ -63,16 +63,17 @@ data class Conversation(
     val pinnedMessageId: String? = null,
     val pinnedMessagePreview: String? = null,
     val pinnedMessageSenderName: String? = null,
+    val typingBy: Map<String, Timestamp> = emptyMap(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
     fun displayTitleFor(currentUserId: String): String {
-        if (type == TYPE_GROUP) return title.ifBlank { "Group Chat" }
+        if (type == TYPE_GROUP) return title.ifBlank { "Group" }
         val otherId = participantIds.firstOrNull { it != currentUserId }
         return if (otherId != null) {
             participantNames[otherId]?.takeIf { it.isNotBlank() } ?: "Direct Chat"
         } else {
-            participantNames[currentUserId]?.takeIf { it.isNotBlank() } ?: "Saved Notes"
+            "Saved Messages"
         }
     }
 
@@ -87,6 +88,46 @@ data class Conversation(
     fun isPinnedBy(userId: String): Boolean = pinnedBy[userId] == true
 
     fun isMutedBy(userId: String): Boolean = mutedBy[userId] == true
+
+    fun activeTypingUserIds(
+        currentUserId: String,
+        blockedUserIds: Set<String> = emptySet(),
+        nowMillis: Long = System.currentTimeMillis(),
+        staleAfterMillis: Long = 10_000L
+    ): List<String> {
+        return typingBy.entries
+            .asSequence()
+            .filter { (uid, ts) ->
+                uid != currentUserId &&
+                    uid !in blockedUserIds &&
+                    uid in participantIds &&
+                    (nowMillis - ts.toDate().time) <= staleAfterMillis
+            }
+            .sortedByDescending { it.value.toDate().time }
+            .map { it.key }
+            .toList()
+    }
+
+    fun formatTypingSummary(
+        currentUserId: String,
+        blockedUserIds: Set<String> = emptySet(),
+        peopleNames: Map<String, String> = emptyMap(),
+        nowMillis: Long = System.currentTimeMillis()
+    ): String? {
+        val activeIds = activeTypingUserIds(currentUserId, blockedUserIds, nowMillis)
+        if (activeIds.isEmpty()) return null
+        if (type == TYPE_DIRECT) return "typing…"
+        val names = activeIds.map { uid ->
+            (peopleNames[uid] ?: participantNames[uid] ?: "Someone")
+                .substringBefore(" ")
+                .ifBlank { "Someone" }
+        }
+        return when (names.size) {
+            1 -> "${names[0]} is typing…"
+            2 -> "${names[0]} and ${names[1]} are typing…"
+            else -> "${names[0]}, ${names[1]} +${names.size - 2} typing…"
+        }
+    }
 
     companion object {
         const val TYPE_DIRECT = "direct"

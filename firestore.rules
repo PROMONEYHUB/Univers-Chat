@@ -45,7 +45,7 @@ service cloud.firestore {
              data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
              data.handle is string && data.handle.size() >= 2 && data.handle.size() <= 32 &&
              (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() <= 160)) &&
-             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 60000)) &&
              (!('statusVibe' in data) || data.statusVibe == null || (data.statusVibe is string && data.statusVibe.size() <= 60)) &&
              data.isOnline is bool &&
              data.isDiscoverable is bool &&
@@ -76,8 +76,23 @@ service cloud.firestore {
              (!('pinnedMessageId' in data) || data.pinnedMessageId == null || (data.pinnedMessageId is string && data.pinnedMessageId.size() <= 128)) &&
              (!('pinnedMessagePreview' in data) || data.pinnedMessagePreview == null || (data.pinnedMessagePreview is string && data.pinnedMessagePreview.size() <= 200)) &&
              (!('pinnedMessageSenderName' in data) || data.pinnedMessageSenderName == null || (data.pinnedMessageSenderName is string && data.pinnedMessageSenderName.size() <= 60)) &&
+             (!('typingBy' in data) || data.typingBy == null || (data.typingBy is map && data.typingBy.size() <= 50)) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidSelfTypingPatch() {
+      return !('typingBy' in incoming().diff(existing()).affectedKeys()) ||
+             (incoming().typingBy is map &&
+              incoming().typingBy.size() <= 50 &&
+              (
+                ((!('typingBy' in existing()) || existing().typingBy == null) &&
+                 incoming().typingBy.keys().hasOnly([request.auth.uid])) ||
+                (('typingBy' in existing() && existing().typingBy != null) &&
+                 incoming().typingBy.diff(existing().typingBy).affectedKeys().hasOnly([request.auth.uid]))
+              ) &&
+              (!(request.auth.uid in incoming().typingBy) ||
+               isValidTimestamp(incoming().typingBy[request.auth.uid])));
     }
 
     function isValidMessage(data) {
@@ -216,7 +231,7 @@ service cloud.firestore {
                          'lastMessageSenderId', 'lastMessageSenderName', 'lastMessageType',
                          'lastMessageAt', 'unreadCounts', 'pinnedBy', 'mutedBy',
                          'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName',
-                         'createdAt', 'updatedAt'
+                         'typingBy', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidConversation(incoming());
 
@@ -228,12 +243,13 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        incoming().type == existing().type &&
                        (
-                         // Action 1: Participant sends message & updates summary + unread counts
+                         // Action 1: Participant sends message & updates summary + unread counts (and optionally clears own typing state)
                          (incoming().participantIds == existing().participantIds &&
                           incoming().diff(existing()).affectedKeys().hasOnly([
                             'lastMessageText', 'lastMessageSenderId', 'lastMessageSenderName',
-                            'lastMessageType', 'lastMessageAt', 'unreadCounts', 'updatedAt'
-                          ])) ||
+                            'lastMessageType', 'lastMessageAt', 'unreadCounts', 'typingBy', 'updatedAt'
+                          ]) &&
+                          isValidSelfTypingPatch()) ||
                          // Action 2: Participant marks conversation read
                          (incoming().participantIds == existing().participantIds &&
                           incoming().diff(existing()).affectedKeys().hasOnly(['unreadCounts', 'updatedAt'])) ||
@@ -260,7 +276,11 @@ service cloud.firestore {
                          (incoming().participantIds == existing().participantIds &&
                           incoming().diff(existing()).affectedKeys().hasOnly([
                             'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName', 'updatedAt'
-                          ]))
+                          ])) ||
+                         // Action 7: Participant updates or clears their own typing indicator timestamp
+                         (incoming().participantIds == existing().participantIds &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['typingBy', 'updatedAt']) &&
+                          isValidSelfTypingPatch())
                        );
 
       allow delete: if isSignedIn() && isValidId(conversationId) &&

@@ -1,0 +1,17 @@
+{
+  "name": "univers-chat-telegram-otp-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Free Telegram Bot OTP verification backend for Univers Chat (Express + Telegram Bot API + Firebase Admin)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test telegramOtp.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

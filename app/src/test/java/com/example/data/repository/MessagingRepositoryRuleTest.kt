@@ -353,6 +353,77 @@ class MessagingRepositoryRuleTest : FirestoreEmulatorTestBase() {
     }
 
     @Test
+    fun typingIndicator_setAndClearAndMessageSendAtomicallyClears_succeedsForParticipants() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val aliceRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val aliceProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeUserProfile(aliceUid).first { it != null }!!
+        }
+
+        val bobUid = signInTestUser(BOB_EMAIL)
+        val bobRepo = MessagingRepository(firestore, auth)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobRepo.syncCurrentUserProfile(checkNotNull(auth.currentUser)).getOrThrow()
+        }
+        val bobProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeUserProfile(bobUid).first { it != null }!!
+        }
+
+        signInTestUser(ALICE_EMAIL)
+        val dmId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.getOrCreateDirectConversation(aliceProfile, bobProfile).getOrThrow()
+        }
+
+        // Alice sets typing indicator on
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.setTypingStatus(dmId, isTyping = true).getOrThrow()
+        }
+
+        // Bob observes Alice actively typing in real time
+        signInTestUser(BOB_EMAIL)
+        val bobObservedTyping = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeConversation(dmId).first {
+                it != null && aliceUid in it.activeTypingUserIds(bobUid)
+            }!!
+        }
+        assertEquals("typing…", bobObservedTyping.formatTypingSummary(bobUid))
+
+        // Alice clears typing status explicitly
+        signInTestUser(ALICE_EMAIL)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.setTypingStatus(dmId, isTyping = false).getOrThrow()
+        }
+        val afterClear = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first {
+                it != null && aliceUid !in it.typingBy
+            }!!
+        }
+        assertTrue(afterClear.activeTypingUserIds(bobUid).isEmpty())
+
+        // Alice starts typing again, then sends a message which atomically clears typingBy[aliceUid]
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.setTypingStatus(dmId, isTyping = true).getOrThrow()
+        }
+        val latestConv = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first {
+                it != null && aliceUid in it.typingBy
+            }!!
+        }
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.sendTextMessage(latestConv, aliceProfile, "Just sent!").getOrThrow()
+        }
+        val afterSend = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeConversation(dmId).first {
+                it != null && it.lastMessageText == "Just sent!" && aliceUid !in it.typingBy
+            }!!
+        }
+        assertFalse(aliceUid in afterSend.typingBy)
+    }
+
+    @Test
     fun observeConversations_unauthenticatedUser_throwsIllegalStateOrPermissionDenied() = runBlocking {
         auth.signOut()
         val repo = MessagingRepository(firestore, auth)

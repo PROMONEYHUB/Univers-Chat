@@ -10,17 +10,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -29,9 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,14 +33,18 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
@@ -59,12 +55,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
-import androidx.compose.ui.draw.clip
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -103,18 +102,25 @@ import com.example.notifications.MessageNotificationCoordinator
 import com.example.notifications.NotificationHelper
 import com.example.notifications.RealtimeMessagingService
 import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.TelegramOtpClient
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.signOut
-import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.IosInAppNotificationBanner
-import com.example.ui.components.LiquidGlassBackdrop
+import com.example.ui.components.LocalTelegramWallpaper
+import com.example.ui.components.TelegramChatWallpaper
+import com.example.ui.components.TelegramLogoMark
+import com.example.ui.components.TelegramPreferencesState
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.screens.CallHostOverlay
 import com.example.ui.screens.ChatRoomScreen
 import com.example.ui.screens.ChatsScreen
 import com.example.ui.screens.PeopleScreen
 import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.TelegramDrawerContent
+import com.example.ui.screens.UserProfileDetailScreen
+import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.PulseChatTheme
+import com.example.ui.theme.TelegramBlue
 import com.example.ui.viewmodel.CallViewModel
 import com.example.ui.viewmodel.ChatRoomViewModel
 import com.example.ui.viewmodel.MainMessagingViewModel
@@ -129,8 +135,10 @@ object Routes {
     const val PEOPLE = "people"
     const val PROFILE = "profile"
     const val CHAT_ROOM = "chat_room/{conversationId}"
+    const val USER_PROFILE = "user_profile/{userId}"
 
     fun chatRoom(conversationId: String): String = "chat_room/$conversationId"
+    fun userProfile(userId: String): String = "user_profile/$userId"
 }
 
 class MainActivity : ComponentActivity() {
@@ -140,8 +148,17 @@ class MainActivity : ComponentActivity() {
         NotificationHelper.ensureChannels(this)
         handleNotificationDeepLink(intent)
         setContent {
-            PulseChatTheme {
-                PulseChatApp()
+            val context = LocalContext.current
+            val themePrefs = remember(context) { TelegramPreferencesState(context) }
+            val resolvedDark = themePrefs.nightModeOverride ?: isSystemInDarkTheme()
+
+            PulseChatTheme(darkTheme = resolvedDark) {
+                CompositionLocalProvider(LocalTelegramWallpaper provides themePrefs.wallpaperStyle) {
+                    PulseChatApp(
+                        themePrefs = themePrefs,
+                        isDark = resolvedDark
+                    )
+                }
             }
         }
     }
@@ -161,8 +178,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PulseChatApp() {
+fun PulseChatApp(
+    themePrefs: TelegramPreferencesState? = null,
+    isDark: Boolean = isSystemInDarkTheme()
+) {
     val context = LocalContext.current
+    val resolvedPrefs = themePrefs ?: remember(context) { TelegramPreferencesState(context) }
     val auth = Firebase.auth
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val user = currentUser
@@ -175,13 +196,21 @@ fun PulseChatApp() {
         AuthScreen(onAuthSuccess = {})
     } else {
         key(user.uid) {
-            AuthenticatedShell(currentUserId = user.uid)
+            AuthenticatedShell(
+                currentUserId = user.uid,
+                themePrefs = resolvedPrefs,
+                isDark = isDark
+            )
         }
     }
 }
 
 @Composable
-private fun AuthenticatedShell(currentUserId: String) {
+private fun AuthenticatedShell(
+    currentUserId: String,
+    themePrefs: TelegramPreferencesState,
+    isDark: Boolean
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
@@ -225,6 +254,7 @@ private fun AuthenticatedShell(currentUserId: String) {
     val peopleSearchQuery by mainViewModel.peopleSearchQuery.collectAsStateWithLifecycle()
     val actionMessage by mainViewModel.actionMessage.collectAsStateWithLifecycle()
     val isBusy by mainViewModel.isBusy.collectAsStateWithLifecycle()
+    val isUploadingPhoto by mainViewModel.isUploadingPhoto.collectAsStateWithLifecycle()
     val incomingCall by callViewModel.incomingCall.collectAsStateWithLifecycle()
     val callState by callViewModel.callState.collectAsStateWithLifecycle()
     val callNotice by callViewModel.callNotice.collectAsStateWithLifecycle()
@@ -374,6 +404,15 @@ private fun AuthenticatedShell(currentUserId: String) {
         }
     }
 
+    val performSignOut: () -> Unit = {
+        callViewModel.hangUp()
+        MessageNotificationCoordinator.stopObserving()
+        RealtimeMessagingService.syncServiceState(context, shouldRun = false)
+        mainViewModel.setOnlineStatus(false)
+        TelegramOtpClient.clearSavedSessionJwt(context)
+        signOut(credentialManager, coroutineScope)
+    }
+
     val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
     val totalUnread = remember(allConversations, currentUserId) {
         allConversations.sumOf { it.unreadCountFor(currentUserId) }
@@ -387,7 +426,10 @@ private fun AuthenticatedShell(currentUserId: String) {
     val currentRoute = backStackEntry?.destination?.route
 
     var expandedSelectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedViewingUserId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeTab by rememberSaveable { mutableStateOf(Routes.CHATS) }
+    var newGroupTrigger by remember { mutableIntStateOf(0) }
+    var callHistoryTrigger by remember { mutableIntStateOf(0) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isExpanded = maxWidth >= 840.dp
@@ -429,11 +471,63 @@ private fun AuthenticatedShell(currentUserId: String) {
                     PulseNavigationRail(
                         selectedRoute = activeTab,
                         totalUnread = totalUnread,
-                        onSelectRoute = { activeTab = it }
+                        isDark = isDark,
+                        onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
+                        onSelectRoute = {
+                            expandedViewingUserId = null
+                            activeTab = it
+                        }
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    if (activeTab == Routes.CHATS) {
+                    val viewingUserId = expandedViewingUserId
+                    if (viewingUserId != null) {
+                        val viewedProfile = remember(viewingUserId, allPeople) {
+                            allPeople.firstOrNull { it.userId == viewingUserId }
+                        }
+                        UserProfileDetailScreen(
+                            profile = viewedProfile,
+                            isBlocked = viewingUserId in blockedUserIds,
+                            onBack = { expandedViewingUserId = null },
+                            onStartChat = { person ->
+                                expandedViewingUserId = null
+                                mainViewModel.startDirectChat(person) { convId ->
+                                    expandedSelectedChatId = convId
+                                    activeTab = Routes.CHATS
+                                }
+                            },
+                            onVoiceCall = { person ->
+                                launchWithCallPermissions(
+                                    PendingCallAction.Outgoing(
+                                        target = CallTarget(
+                                            userId = person.userId,
+                                            displayName = person.displayName,
+                                            photoUrl = person.photoUrl,
+                                            conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                        ),
+                                        isVideoCall = false
+                                    )
+                                )
+                            },
+                            onVideoCall = { person ->
+                                launchWithCallPermissions(
+                                    PendingCallAction.Outgoing(
+                                        target = CallTarget(
+                                            userId = person.userId,
+                                            displayName = person.displayName,
+                                            photoUrl = person.photoUrl,
+                                            conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                        ),
+                                        isVideoCall = true
+                                    )
+                                )
+                            },
+                            onToggleBlock = { person ->
+                                mainViewModel.setUserBlocked(person.userId, person.userId !in blockedUserIds)
+                            },
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
+                    } else if (activeTab == Routes.CHATS) {
                         Box(modifier = Modifier.width(380.dp).fillMaxHeight()) {
                             ChatsScreen(
                                 currentUserId = currentUserId,
@@ -466,7 +560,9 @@ private fun AuthenticatedShell(currentUserId: String) {
                                 onToggleMarkUnread = mainViewModel::toggleMarkUnread,
                                 onStartCall = { target, isVideo ->
                                     launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
-                                }
+                                },
+                                externalNewGroupTrigger = newGroupTrigger,
+                                externalCallHistoryTrigger = callHistoryTrigger
                             )
                         }
                         VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -498,7 +594,8 @@ private fun AuthenticatedShell(currentUserId: String) {
                                         blockedUserIds = blockedUserIds,
                                         onTogglePinConversation = mainViewModel::togglePinConversation,
                                         onToggleMuteConversation = mainViewModel::toggleMuteConversation,
-                                        onToggleBlockUser = mainViewModel::setUserBlocked
+                                        onToggleBlockUser = mainViewModel::setUserBlocked,
+                                        onOpenUserProfile = { targetUid -> expandedViewingUserId = targetUid }
                                     )
                                 }
                             } else {
@@ -531,6 +628,7 @@ private fun AuthenticatedShell(currentUserId: String) {
                                     )
                                 )
                             },
+                            onViewProfile = { person -> expandedViewingUserId = person.userId },
                             blockedUserIds = blockedUserIds
                         )
                     } else {
@@ -540,13 +638,10 @@ private fun AuthenticatedShell(currentUserId: String) {
                             isBusy = isBusy,
                             onSaveProfile = mainViewModel::saveProfile,
                             onUpdatePrivacy = mainViewModel::updatePrivacyPreferences,
-                            onSignOut = {
-                                callViewModel.hangUp()
-                                MessageNotificationCoordinator.stopObserving()
-                                RealtimeMessagingService.syncServiceState(context, shouldRun = false)
-                                mainViewModel.setOnlineStatus(false)
-                                signOut(credentialManager, coroutineScope)
-                            },
+                            onSignOut = performSignOut,
+                            isUploadingPhoto = isUploadingPhoto,
+                            onUploadProfilePhoto = mainViewModel::uploadProfilePhoto,
+                            onRemoveProfilePhoto = mainViewModel::removeProfilePhoto,
                             hasPhoneNotificationPermission = hasNotificationPermission,
                             onRequestNotificationPermission = {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -555,7 +650,19 @@ private fun AuthenticatedShell(currentUserId: String) {
                             },
                             blockedUserIds = blockedUserIds,
                             allPeople = allPeople,
-                            onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) }
+                            onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) },
+                            isNightMode = isDark,
+                            onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
+                            wallpaperStyle = themePrefs.wallpaperStyle,
+                            onSelectWallpaper = themePrefs::selectWallpaper,
+                            onOpenSavedMessages = currentUserProfile?.let { me ->
+                                {
+                                    mainViewModel.startDirectChat(me) { convId ->
+                                        expandedSelectedChatId = convId
+                                        activeTab = Routes.CHATS
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -578,176 +685,304 @@ private fun AuthenticatedShell(currentUserId: String) {
                     restoreState = true
                 }
             }
+            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+            val userEmailOrPhone = privateUser?.email?.takeIf { it.isNotBlank() }
+                ?: Firebase.auth.currentUser?.phoneNumber
 
-            Scaffold(
-                snackbarHost = { SnackbarHost(snackbarHostState) },
-                containerColor = MaterialTheme.colorScheme.background,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                bottomBar = {
-                    if (showTopLevelNav && !isMedium) {
-                        PulseBottomBar(
-                            selectedRoute = currentRoute,
-                            totalUnread = totalUnread,
-                            onSelectRoute = navigateTopLevel
-                        )
-                    }
-                }
-            ) { innerPadding ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
-                    if (showTopLevelNav && isMedium) {
-                        PulseNavigationRail(
-                            selectedRoute = currentRoute,
-                            totalUnread = totalUnread,
-                            onSelectRoute = navigateTopLevel
-                        )
-                        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    }
-
-                    NavHost(
-                        navController = navController,
-                        startDestination = Routes.CHATS,
-                        enterTransition = { fadeIn(tween(180)) },
-                        exitTransition = { fadeOut(tween(150)) },
-                        modifier = Modifier.weight(1f).fillMaxHeight()
+            val scaffoldContent: @Composable () -> Unit = {
+                Scaffold(
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                ) { innerPadding ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
                     ) {
-                        composable(Routes.CHATS) {
-                            ChatsScreen(
-                                currentUserId = currentUserId,
-                                currentUserProfile = currentUserProfile,
-                                conversationsState = conversationsState,
-                                peopleState = peopleState,
-                                searchQuery = searchQuery,
-                                selectedFilter = chatFilter,
-                                selectedConversationId = null,
-                                onSearchQueryChange = mainViewModel::updateSearchQuery,
-                                onSelectFilter = mainViewModel::selectChatFilter,
-                                onOpenConversation = { convId ->
-                                    navController.navigate(Routes.chatRoom(convId))
-                                },
-                                onStartDirectChat = { person ->
-                                    mainViewModel.startDirectChat(person) { convId ->
-                                        navController.navigate(Routes.chatRoom(convId))
-                                    }
-                                },
-                                onCreateGroupChat = { title, topic, members ->
-                                    mainViewModel.createGroupChat(title, topic, members) { convId ->
-                                        navController.navigate(Routes.chatRoom(convId))
-                                    }
-                                },
-                                onDeleteConversation = { conversation, onResult ->
-                                    mainViewModel.deleteOrLeaveConversation(conversation, onResult)
-                                },
-                                onProfileClick = { navigateTopLevel(Routes.PROFILE) },
-                                blockedUserIds = blockedUserIds,
-                                callHistory = callHistory,
-                                onTogglePinConversation = mainViewModel::togglePinConversation,
-                                onToggleMuteConversation = mainViewModel::toggleMuteConversation,
-                                onToggleMarkUnread = mainViewModel::toggleMarkUnread,
-                                onStartCall = { target, isVideo ->
-                                    launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
-                                }
+                        if (showTopLevelNav && isMedium) {
+                            PulseNavigationRail(
+                                selectedRoute = currentRoute,
+                                totalUnread = totalUnread,
+                                isDark = isDark,
+                                onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
+                                onSelectRoute = navigateTopLevel
                             )
+                            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
 
-                        composable(Routes.PEOPLE) {
-                            PeopleScreen(
-                                currentUserId = currentUserId,
-                                currentUserProfile = currentUserProfile,
-                                peopleState = peopleState,
-                                searchQuery = peopleSearchQuery,
-                                onSearchQueryChange = mainViewModel::updatePeopleSearchQuery,
-                                onMessagePerson = { person ->
-                                    mainViewModel.startDirectChat(person) { convId ->
+                        NavHost(
+                            navController = navController,
+                            startDestination = Routes.CHATS,
+                            enterTransition = { fadeIn(tween(180)) },
+                            exitTransition = { fadeOut(tween(150)) },
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        ) {
+                            composable(Routes.CHATS) {
+                                ChatsScreen(
+                                    currentUserId = currentUserId,
+                                    currentUserProfile = currentUserProfile,
+                                    conversationsState = conversationsState,
+                                    peopleState = peopleState,
+                                    searchQuery = searchQuery,
+                                    selectedFilter = chatFilter,
+                                    selectedConversationId = null,
+                                    onSearchQueryChange = mainViewModel::updateSearchQuery,
+                                    onSelectFilter = mainViewModel::selectChatFilter,
+                                    onOpenConversation = { convId ->
                                         navController.navigate(Routes.chatRoom(convId))
-                                    }
-                                },
-                                onCallPerson = { person, isVideo ->
-                                    launchWithCallPermissions(
-                                        PendingCallAction.Outgoing(
-                                            target = CallTarget(
-                                                userId = person.userId,
-                                                displayName = person.displayName,
-                                                photoUrl = person.photoUrl,
-                                                conversationId = buildDirectConversationId(currentUserId, person.userId)
-                                            ),
-                                            isVideoCall = isVideo
-                                        )
-                                    )
-                                },
-                                blockedUserIds = blockedUserIds
-                            )
-                        }
-
-                        composable(Routes.PROFILE) {
-                            ProfileScreen(
-                                userProfile = currentUserProfile,
-                                privateUser = privateUser,
-                                isBusy = isBusy,
-                                onSaveProfile = mainViewModel::saveProfile,
-                                onUpdatePrivacy = mainViewModel::updatePrivacyPreferences,
-                                onSignOut = {
-                                    callViewModel.hangUp()
-                                    MessageNotificationCoordinator.stopObserving()
-                                    RealtimeMessagingService.syncServiceState(context, shouldRun = false)
-                                    mainViewModel.setOnlineStatus(false)
-                                    signOut(credentialManager, coroutineScope)
-                                },
-                                hasPhoneNotificationPermission = hasNotificationPermission,
-                                onRequestNotificationPermission = {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    }
-                                },
-                                blockedUserIds = blockedUserIds,
-                                allPeople = allPeople,
-                                onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) }
-                            )
-                        }
-
-                        composable(
-                            route = Routes.CHAT_ROOM,
-                            arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
-                            enterTransition = {
-                                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(240)) + fadeIn(tween(200))
-                            },
-                            popExitTransition = {
-                                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(220)) + fadeOut(tween(180))
+                                    },
+                                    onStartDirectChat = { person ->
+                                        mainViewModel.startDirectChat(person) { convId ->
+                                            navController.navigate(Routes.chatRoom(convId))
+                                        }
+                                    },
+                                    onCreateGroupChat = { title, topic, members ->
+                                        mainViewModel.createGroupChat(title, topic, members) { convId ->
+                                            navController.navigate(Routes.chatRoom(convId))
+                                        }
+                                    },
+                                    onDeleteConversation = { conversation, onResult ->
+                                        mainViewModel.deleteOrLeaveConversation(conversation, onResult)
+                                    },
+                                    onProfileClick = { navigateTopLevel(Routes.PROFILE) },
+                                    onOpenDrawer = if (!isMedium) {
+                                        { coroutineScope.launch { drawerState.open() } }
+                                    } else null,
+                                    blockedUserIds = blockedUserIds,
+                                    callHistory = callHistory,
+                                    onTogglePinConversation = mainViewModel::togglePinConversation,
+                                    onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                    onToggleMarkUnread = mainViewModel::toggleMarkUnread,
+                                    onStartCall = { target, isVideo ->
+                                        launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                    },
+                                    externalNewGroupTrigger = newGroupTrigger,
+                                    externalCallHistoryTrigger = callHistoryTrigger
+                                )
                             }
-                        ) { entry ->
-                            val conversationId = entry.arguments?.getString("conversationId").orEmpty()
-                            val chatRoomVm: ChatRoomViewModel = viewModel(
-                                key = "${currentUserId}_$conversationId",
-                                factory = viewModelFactory {
-                                    initializer {
-                                        val app = checkNotNull(this[APPLICATION_KEY])
-                                        val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
-                                        ChatRoomViewModel(MessagingRepository(db), conversationId, currentUserId)
+
+                            composable(Routes.PEOPLE) {
+                                PeopleScreen(
+                                    currentUserId = currentUserId,
+                                    currentUserProfile = currentUserProfile,
+                                    peopleState = peopleState,
+                                    searchQuery = peopleSearchQuery,
+                                    onSearchQueryChange = mainViewModel::updatePeopleSearchQuery,
+                                    onMessagePerson = { person ->
+                                        mainViewModel.startDirectChat(person) { convId ->
+                                            navController.navigate(Routes.chatRoom(convId))
+                                        }
+                                    },
+                                    onCallPerson = { person, isVideo ->
+                                        launchWithCallPermissions(
+                                            PendingCallAction.Outgoing(
+                                                target = CallTarget(
+                                                    userId = person.userId,
+                                                    displayName = person.displayName,
+                                                    photoUrl = person.photoUrl,
+                                                    conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                                ),
+                                                isVideoCall = isVideo
+                                            )
+                                        )
+                                    },
+                                    onViewProfile = { person ->
+                                        navController.navigate(Routes.userProfile(person.userId))
+                                    },
+                                    blockedUserIds = blockedUserIds,
+                                    showBackButton = !isMedium,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+
+                            composable(Routes.PROFILE) {
+                                ProfileScreen(
+                                    userProfile = currentUserProfile,
+                                    privateUser = privateUser,
+                                    isBusy = isBusy,
+                                    onSaveProfile = mainViewModel::saveProfile,
+                                    onUpdatePrivacy = mainViewModel::updatePrivacyPreferences,
+                                    onSignOut = performSignOut,
+                                    isUploadingPhoto = isUploadingPhoto,
+                                    onUploadProfilePhoto = mainViewModel::uploadProfilePhoto,
+                                    onRemoveProfilePhoto = mainViewModel::removeProfilePhoto,
+                                    hasPhoneNotificationPermission = hasNotificationPermission,
+                                    onRequestNotificationPermission = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    },
+                                    blockedUserIds = blockedUserIds,
+                                    allPeople = allPeople,
+                                    onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) },
+                                    showBackButton = !isMedium,
+                                    onBack = { navController.popBackStack() },
+                                    isNightMode = isDark,
+                                    onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
+                                    wallpaperStyle = themePrefs.wallpaperStyle,
+                                    onSelectWallpaper = themePrefs::selectWallpaper,
+                                    onOpenSavedMessages = currentUserProfile?.let { me ->
+                                        {
+                                            mainViewModel.startDirectChat(me) { convId ->
+                                                navController.navigate(Routes.chatRoom(convId))
+                                            }
+                                        }
                                     }
-                                }
-                            )
-                            ChatRoomScreen(
-                                viewModel = chatRoomVm,
-                                currentUserProfile = currentUserProfile,
-                                allPeople = allPeople,
-                                readReceiptsEnabled = readReceiptsEnabled,
-                                showBackButton = true,
-                                onBack = { navController.popBackStack() },
-                                onStartCall = { target, isVideo ->
-                                    launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                )
+                            }
+
+                            composable(
+                                route = Routes.USER_PROFILE,
+                                arguments = listOf(navArgument("userId") { type = NavType.StringType }),
+                                enterTransition = {
+                                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(240)) + fadeIn(tween(200))
                                 },
-                                allConversations = allConversations,
-                                blockedUserIds = blockedUserIds,
-                                onTogglePinConversation = mainViewModel::togglePinConversation,
-                                onToggleMuteConversation = mainViewModel::toggleMuteConversation,
-                                onToggleBlockUser = mainViewModel::setUserBlocked
-                            )
+                                popExitTransition = {
+                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(220)) + fadeOut(tween(180))
+                                }
+                            ) { entry ->
+                                val targetUserId = entry.arguments?.getString("userId").orEmpty()
+                                val targetProfile = remember(targetUserId, allPeople) {
+                                    allPeople.firstOrNull { it.userId == targetUserId }
+                                }
+                                UserProfileDetailScreen(
+                                    profile = targetProfile,
+                                    isBlocked = targetUserId in blockedUserIds,
+                                    onBack = { navController.popBackStack() },
+                                    onStartChat = { person ->
+                                        mainViewModel.startDirectChat(person) { convId ->
+                                            navController.navigate(Routes.chatRoom(convId)) {
+                                                launchSingleTop = true
+                                            }
+                                        }
+                                    },
+                                    onVoiceCall = { person ->
+                                        launchWithCallPermissions(
+                                            PendingCallAction.Outgoing(
+                                                target = CallTarget(
+                                                    userId = person.userId,
+                                                    displayName = person.displayName,
+                                                    photoUrl = person.photoUrl,
+                                                    conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                                ),
+                                                isVideoCall = false
+                                            )
+                                        )
+                                    },
+                                    onVideoCall = { person ->
+                                        launchWithCallPermissions(
+                                            PendingCallAction.Outgoing(
+                                                target = CallTarget(
+                                                    userId = person.userId,
+                                                    displayName = person.displayName,
+                                                    photoUrl = person.photoUrl,
+                                                    conversationId = buildDirectConversationId(currentUserId, person.userId)
+                                                ),
+                                                isVideoCall = true
+                                            )
+                                        )
+                                    },
+                                    onToggleBlock = { person ->
+                                        mainViewModel.setUserBlocked(person.userId, person.userId !in blockedUserIds)
+                                    }
+                                )
+                            }
+
+                            composable(
+                                route = Routes.CHAT_ROOM,
+                                arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
+                                enterTransition = {
+                                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(240)) + fadeIn(tween(200))
+                                },
+                                popExitTransition = {
+                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(220)) + fadeOut(tween(180))
+                                }
+                            ) { entry ->
+                                val conversationId = entry.arguments?.getString("conversationId").orEmpty()
+                                val chatRoomVm: ChatRoomViewModel = viewModel(
+                                    key = "${currentUserId}_$conversationId",
+                                    factory = viewModelFactory {
+                                        initializer {
+                                            val app = checkNotNull(this[APPLICATION_KEY])
+                                            val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
+                                            ChatRoomViewModel(MessagingRepository(db), conversationId, currentUserId)
+                                        }
+                                    }
+                                )
+                                ChatRoomScreen(
+                                    viewModel = chatRoomVm,
+                                    currentUserProfile = currentUserProfile,
+                                    allPeople = allPeople,
+                                    readReceiptsEnabled = readReceiptsEnabled,
+                                    showBackButton = true,
+                                    onBack = { navController.popBackStack() },
+                                    onStartCall = { target, isVideo ->
+                                        launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                    },
+                                    allConversations = allConversations,
+                                    blockedUserIds = blockedUserIds,
+                                    onTogglePinConversation = mainViewModel::togglePinConversation,
+                                    onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                    onToggleBlockUser = mainViewModel::setUserBlocked,
+                                    onOpenUserProfile = { targetUid ->
+                                        navController.navigate(Routes.userProfile(targetUid))
+                                    }
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            if (!isMedium) {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    gesturesEnabled = currentRoute == Routes.CHATS,
+                    drawerContent = {
+                        TelegramDrawerContent(
+                            currentUserProfile = currentUserProfile,
+                            userEmailOrPhone = userEmailOrPhone,
+                            wallpaperStyle = themePrefs.wallpaperStyle,
+                            onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
+                            onNewGroupClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                newGroupTrigger += 1
+                            },
+                            onContactsClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                navigateTopLevel(Routes.PEOPLE)
+                            },
+                            onCallsClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                callHistoryTrigger += 1
+                            },
+                            onSavedMessagesClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                currentUserProfile?.let { me ->
+                                    mainViewModel.startDirectChat(me) { convId ->
+                                        navController.navigate(Routes.chatRoom(convId))
+                                    }
+                                }
+                            },
+                            onSettingsClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                navigateTopLevel(Routes.PROFILE)
+                            },
+                            onCycleWallpaperClick = {
+                                themePrefs.cycleWallpaper()
+                            },
+                            onSignOutClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                performSignOut()
+                            }
+                        )
+                    }
+                ) {
+                    scaffoldContent()
+                }
+            } else {
+                scaffoldContent()
             }
         }
 
@@ -811,191 +1046,28 @@ private sealed interface PendingCallAction {
 
 @Composable
 private fun EmptyExpandedChatPane() {
+    val isDark = LocalIsTelegramDark.current
     Box(modifier = Modifier.fillMaxSize()) {
-        LiquidGlassBackdrop()
+        TelegramChatWallpaper()
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
-            GlassmorphismCard(
-                modifier = Modifier.padding(horizontal = 16.dp)
+            Surface(
+                shape = CircleShape,
+                color = if (isDark) Color(0xCC182533) else Color(0x701B2A3A)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(68.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.Forum,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Select a conversation",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Pick a thread from the left to jump right in",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PulseBottomBar(
-    selectedRoute: String?,
-    totalUnread: Long,
-    onSelectRoute: (String) -> Unit
-) {
-    val isDark = isSystemInDarkTheme()
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        GlassmorphismCard(
-            shape = CircleShape,
-            highlighted = false,
-            tintAlpha = if (isDark) 0.14f else 0.54f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IosDockItem(
-                    selected = selectedRoute == Routes.CHATS,
-                    label = "Chats",
-                    icon = if (selectedRoute == Routes.CHATS) Icons.AutoMirrored.Rounded.Chat else Icons.AutoMirrored.Outlined.Chat,
-                    badgeCount = totalUnread,
-                    onClick = { onSelectRoute(Routes.CHATS) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("nav_chats")
-                )
-                IosDockItem(
-                    selected = selectedRoute == Routes.PEOPLE,
-                    label = "Contacts",
-                    icon = if (selectedRoute == Routes.PEOPLE) Icons.Rounded.Groups else Icons.Outlined.Groups,
-                    badgeCount = 0L,
-                    onClick = { onSelectRoute(Routes.PEOPLE) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("nav_people")
-                )
-                IosDockItem(
-                    selected = selectedRoute == Routes.PROFILE,
-                    label = "Settings",
-                    icon = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Person else Icons.Outlined.Person,
-                    badgeCount = 0L,
-                    onClick = { onSelectRoute(Routes.PROFILE) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("nav_profile")
+                Text(
+                    text = "Select a chat to start messaging",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun IosDockItem(
-    selected: Boolean,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    badgeCount: Long,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val haptics = rememberIosHaptics()
-    val isDark = isSystemInDarkTheme()
-    val pillColor by animateColorAsState(
-        targetValue = if (selected) {
-            Color.White.copy(alpha = if (isDark) 0.16f else 0.72f)
-        } else {
-            Color.Transparent
-        },
-        label = "dock_pill"
-    )
-    val tintColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        label = "dock_tint"
-    )
-
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(CircleShape)
-            .background(pillColor)
-            .then(
-                if (selected) {
-                    Modifier.border(
-                        width = 0.8.dp,
-                        color = Color.White.copy(alpha = if (isDark) 0.28f else 0.90f),
-                        shape = CircleShape
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .clickable {
-                if (!selected) haptics.selectionTick()
-                onClick()
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        BadgedBox(
-            badge = {
-                if (badgeCount > 0L) {
-                    Badge(
-                        containerColor = MaterialTheme.colorScheme.secondary,
-                        contentColor = Color.White
-                    ) {
-                        Text(if (badgeCount > 99L) "99+" else badgeCount.toString())
-                    }
-                }
-            }
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = tintColor,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = tintColor
-        )
     }
 }
 
@@ -1003,19 +1075,27 @@ private fun IosDockItem(
 private fun PulseNavigationRail(
     selectedRoute: String?,
     totalUnread: Long,
+    isDark: Boolean,
+    onToggleNightMode: () -> Unit,
     onSelectRoute: (String) -> Unit
 ) {
     val haptics = rememberIosHaptics()
     val railItemColors = NavigationRailItemDefaults.colors(
-        selectedIconColor = MaterialTheme.colorScheme.primary,
-        selectedTextColor = MaterialTheme.colorScheme.primary,
+        selectedIconColor = TelegramBlue,
+        selectedTextColor = TelegramBlue,
         indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
     NavigationRail(
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        header = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(modifier = Modifier.height(8.dp))
+                TelegramLogoMark(size = 40.dp)
+            }
+        }
     ) {
         NavigationRailItem(
             selected = selectedRoute == Routes.CHATS,
@@ -1029,7 +1109,7 @@ private fun PulseNavigationRail(
                     badge = {
                         if (totalUnread > 0L) {
                             Badge(
-                                containerColor = MaterialTheme.colorScheme.secondary,
+                                containerColor = TelegramBlue,
                                 contentColor = Color.White
                             ) {
                                 Text(if (totalUnread > 99L) "99+" else totalUnread.toString())
@@ -1043,7 +1123,8 @@ private fun PulseNavigationRail(
                     )
                 }
             },
-            label = { Text("Chats", fontWeight = FontWeight.SemiBold) }
+            label = { Text("Chats", fontWeight = FontWeight.SemiBold) },
+            modifier = Modifier.testTag("nav_chats")
         )
         NavigationRailItem(
             selected = selectedRoute == Routes.PEOPLE,
@@ -1058,7 +1139,8 @@ private fun PulseNavigationRail(
                     contentDescription = "Contacts"
                 )
             },
-            label = { Text("Contacts", fontWeight = FontWeight.SemiBold) }
+            label = { Text("Contacts", fontWeight = FontWeight.SemiBold) },
+            modifier = Modifier.testTag("nav_people")
         )
         NavigationRailItem(
             selected = selectedRoute == Routes.PROFILE,
@@ -1070,10 +1152,30 @@ private fun PulseNavigationRail(
             icon = {
                 Icon(
                     imageVector = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Person else Icons.Outlined.Person,
-                    contentDescription = "Settings"
+                    contentDescription = "Profile"
                 )
             },
-            label = { Text("Settings", fontWeight = FontWeight.SemiBold) }
+            label = { Text("Profile", fontWeight = FontWeight.SemiBold) },
+            modifier = Modifier.testTag("nav_profile")
         )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        IconButton(
+            onClick = {
+                haptics.selectionTick()
+                onToggleNightMode()
+            },
+            modifier = Modifier
+                .padding(bottom = 12.dp)
+                .size(48.dp)
+                .testTag("rail_night_mode_toggle")
+        ) {
+            Icon(
+                imageVector = if (isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
+                contentDescription = if (isDark) "Switch to Day theme" else "Switch to Night theme",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

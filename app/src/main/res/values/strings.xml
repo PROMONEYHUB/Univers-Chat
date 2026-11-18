@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">Univers Chat</string>
     <string name="auth_hero_desc">Univers Chat social messaging illustration</string>
-    <string name="auth_headline">Conversations that feel alive</string>
-    <string name="auth_subtitle">Direct messages, lively group channels, instant tapbacks, photo sharing, and live polls in real time.</string>
+    <string name="auth_headline">Univers Chat</string>
+    <string name="auth_subtitle">Fast, cloud-synced messaging with voice notes, HD calls, live polls, and real-time typing.</string>
     <string name="send_otp_code">Send Verification Code</string>
     <string name="verify_and_continue">Verify &amp; Continue</string>
     <string name="sending_code">Sending OTP…</string>
@@ -11,12 +11,12 @@
     <string name="signing_in_google">Signing in with Google…</string>
     <string name="auth_privacy_note">Secured by Google Sign-In, SMS OTP &amp; Cloud Firestore</string>
     <string name="tab_chats">Chats</string>
-    <string name="tab_people">People</string>
-    <string name="tab_profile">Profile</string>
-    <string name="new_chat">New Chat</string>
+    <string name="tab_people">Contacts</string>
+    <string name="tab_profile">Settings</string>
+    <string name="new_chat">New Message</string>
     <string name="empty_chats_desc">No conversations yet illustration</string>
-    <string name="empty_chats_title">Start your first conversation</string>
-    <string name="empty_chats_subtitle">Tap New Chat or visit People to message friends and spin up group channels.</string>
+    <string name="empty_chats_title">Welcome to Univers Chat</string>
+    <string name="empty_chats_subtitle">Tap the pencil button or open Contacts from the menu to start messaging.</string>
     <string name="sign_out">Sign out</string>
     <string name="voice_call">HD Voice Call</string>
     <string name="video_call">HD Video Call</string>
@@ -36,4 +36,20 @@
     <string name="copy_message">Copy text</string>
     <string name="block_user">Block User</string>
     <string name="unblock_user">Unblock User</string>
+    <string name="typing_single">typing…</string>
+    <string name="typing_someone">%1$s is typing…</string>
+    <string name="my_profile_title">My Profile</string>
+    <string name="upload_profile_photo">Upload Photo</string>
+    <string name="change_profile_photo">Change Photo</string>
+    <string name="remove_profile_photo">Remove Photo</string>
+    <string name="profile_bio_placeholder">Write a short bio about yourself…</string>
+    <string name="otp_channel_telegram">Telegram Bot</string>
+    <string name="otp_channel_sms">SMS OTP</string>
+    <string name="send_telegram_otp">Get OTP on Telegram</string>
+    <string name="sending_telegram_otp">Connecting to Telegram Bot…</string>
+    <string name="open_telegram_bot">Open Telegram Bot</string>
+    <string name="telegram_otp_badge">Telegram Bot OTP</string>
+    <string name="telegram_otp_direct_hint">We sent a 6-digit verification code directly to your Telegram chat.</string>
+    <string name="telegram_otp_open_bot_hint">Tap Open Telegram Bot below, press Start, and share your phone number to receive your instant 6-digit code.</string>
+    <string name="switch_to_sms_otp">Use SMS OTP instead</string>
 </resources>

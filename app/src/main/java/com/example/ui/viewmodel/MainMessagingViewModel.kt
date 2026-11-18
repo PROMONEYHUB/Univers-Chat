@@ -143,6 +143,9 @@ class MainMessagingViewModel(
     private val _isBusy = MutableStateFlow(false)
     val isBusy: StateFlow<Boolean> = _isBusy.asStateFlow()
 
+    private val _isUploadingPhoto = MutableStateFlow(false)
+    val isUploadingPhoto: StateFlow<Boolean> = _isUploadingPhoto.asStateFlow()
+
     init {
         viewModelScope.launch {
             val firebaseUser = Firebase.auth.currentUser
@@ -243,6 +246,36 @@ class MainMessagingViewModel(
                 _isBusy.value = false
                 _actionMessage.value = err.localizedMessage ?: "Failed to update profile"
             }
+        }
+    }
+
+    fun uploadProfilePhoto(photoDataUri: String) {
+        viewModelScope.launch {
+            _isUploadingPhoto.value = true
+            repository.updateProfilePhoto(photoDataUri)
+                .onSuccess {
+                    _isUploadingPhoto.value = false
+                    _actionMessage.value = "Profile picture updated"
+                }
+                .onFailure { err ->
+                    _isUploadingPhoto.value = false
+                    _actionMessage.value = err.localizedMessage ?: "Failed to update profile picture"
+                }
+        }
+    }
+
+    fun removeProfilePhoto() {
+        viewModelScope.launch {
+            _isUploadingPhoto.value = true
+            repository.updateProfilePhoto("")
+                .onSuccess {
+                    _isUploadingPhoto.value = false
+                    _actionMessage.value = "Profile picture removed"
+                }
+                .onFailure { err ->
+                    _isUploadingPhoto.value = false
+                    _actionMessage.value = err.localizedMessage ?: "Failed to remove profile picture"
+                }
         }
     }
 

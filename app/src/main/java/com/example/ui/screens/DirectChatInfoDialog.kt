@@ -112,7 +112,7 @@ fun DirectChatInfoDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isSelfChat) "Personal Notes" else "Contact Info",
+                        text = if (isSelfChat) "Saved Messages" else "User Info",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -130,9 +130,10 @@ fun DirectChatInfoDialog(
                     name = title,
                     photoUrl = photoUrl,
                     size = 76.dp,
+                    isSavedMessages = isSelfChat,
                     showPresence = !isSelfChat && otherProfile != null,
                     isOnline = otherProfile?.isOnline == true,
-                    showStoryRing = otherProfile?.isOnline == true
+                    showStoryRing = false
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -177,7 +178,7 @@ fun DirectChatInfoDialog(
                                     )
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
-                                        text = "Active now",
+                                        text = "online",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer

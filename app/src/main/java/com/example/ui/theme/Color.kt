@@ -4,74 +4,127 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 // =====================================================================
-// Apple / iOS System Palette — Light Mode
+// Telegram Official Palette — Day (Light Mode)
 // =====================================================================
-val IosBlue = Color(0xFF007AFF)
-val IosBlueDeep = Color(0xFF0056D6)
-val IosBlueBright = Color(0xFF2894FF)
-val IosIndigo = Color(0xFF5856D6)
-val IosTeal = Color(0xFF30B0C7)
-val IosGreen = Color(0xFF34C759)
-val IosRed = Color(0xFFFF3B30)
-val IosOrange = Color(0xFFFF9500)
-val IosPink = Color(0xFFFF2D55)
+val TelegramBlue = Color(0xFF3390EC)
+val TelegramBlueDeep = Color(0xFF2278D4)
+val TelegramBlueBright = Color(0xFF2AABEE)
+val TelegramSteelBlue = Color(0xFF517DA2)
+val TelegramSteelBlueDark = Color(0xFF426A8D)
 
-val IosBlueContainerLight = Color(0xFFE3F0FF)
-val IosOnBlueContainerLight = Color(0xFF002E69)
-val IosRedContainerLight = Color(0xFFFFE5E4)
-val IosOnRedContainerLight = Color(0xFF690005)
-val IosGreenContainerLight = Color(0xFFDDF9E4)
-val IosOnGreenContainerLight = Color(0xFF003914)
+val TelegramIndigo = Color(0xFF5C6BC0)
+val TelegramTeal = Color(0xFF26A69A)
+val TelegramGreen = Color(0xFF4DCD5E)
+val TelegramTickGreen = Color(0xFF4FAE4E)
+val TelegramRed = Color(0xFFE53935)
+val TelegramOrange = Color(0xFFFB8C00)
+val TelegramPink = Color(0xFFEC407A)
+val TelegramViolet = Color(0xFF8E24AA)
 
-val IosLightGroupedBackground = Color(0xFFF2F2F7)   // systemGroupedBackground
-val IosLightCardSurface = Color(0xFFFFFFFF)         // secondarySystemGroupedBackground
-val IosLightBubbleIncoming = Color(0xFFE9E9EB)      // iMessage incoming gray bubble
-val IosLightFill = Color(0xFFE5E5EA)                // tertiarySystemFill (search, segmented track)
-val IosLightLabel = Color(0xFF1C1C1E)               // primary label
-val IosLightSecondaryLabel = Color(0xFF6C6C70)      // accessible secondaryLabel
-val IosLightSeparator = Color(0xFFD1D1D6)           // opaqueSeparator
-val IosLightHairline = Color(0xFFE5E5EA)            // subtle card border / divider
+val TelegramBlueContainerLight = Color(0xFFE3F2FD)
+val TelegramOnBlueContainerLight = Color(0xFF0D47A1)
+val TelegramRedContainerLight = Color(0xFFFFEBEE)
+val TelegramOnRedContainerLight = Color(0xFF7F1D1D)
+val TelegramGreenContainerLight = Color(0xFFE8F5E9)
+val TelegramOnGreenContainerLight = Color(0xFF1B5E20)
+
+val TelegramLightBackground = Color(0xFFFFFFFF)
+val TelegramLightGroupedBackground = Color(0xFFF0F2F5)
+val TelegramLightCardSurface = Color(0xFFFFFFFF)
+val TelegramLightFill = Color(0xFFEFF1F5)
+val TelegramLightLabel = Color(0xFF222222)
+val TelegramLightSecondaryLabel = Color(0xFF707579)
+val TelegramLightDivider = Color(0xFFE4E7EB)
+
+val TelegramOutgoingBubbleLight = Color(0xFFEEFFDE)
+val TelegramOutgoingTextLight = Color(0xFF151C14)
+val TelegramOutgoingSubtleLight = Color(0xFF5B7D56)
+val TelegramIncomingBubbleLight = Color(0xFFFFFFFF)
 
 // =====================================================================
-// Apple / iOS System Palette — Dark Mode
+// Telegram Official Palette — Night (Dark Mode)
 // =====================================================================
-val IosDarkBlue = Color(0xFF0A84FF)
-val IosDarkBlueDeep = Color(0xFF0060DF)
-val IosDarkIndigo = Color(0xFF5E5CE6)
-val IosDarkTeal = Color(0xFF64D2FF)
-val IosDarkGreen = Color(0xFF30D158)
-val IosDarkRed = Color(0xFFFF453A)
-val IosDarkOrange = Color(0xFFFF9F0A)
-val IosDarkPink = Color(0xFFFF375F)
+val TelegramDarkBlue = Color(0xFF64B5F6)
+val TelegramDarkBlueDeep = Color(0xFF3E8AD6)
+val TelegramDarkBar = Color(0xFF212D3B)
+val TelegramDarkBackground = Color(0xFF17212B)
+val TelegramDarkCardSurface = Color(0xFF1D2733)
+val TelegramDarkChatCanvas = Color(0xFF0E1621)
+val TelegramDarkFill = Color(0xFF242F3D)
+val TelegramDarkLabel = Color(0xFFF5F5F5)
+val TelegramDarkSecondaryLabel = Color(0xFF7F91A4)
+val TelegramDarkDivider = Color(0xFF101921)
 
-val IosBlueContainerDark = Color(0xFF0E2C59)
-val IosOnBlueContainerDark = Color(0xFFD6E7FF)
-val IosRedContainerDark = Color(0xFF5C1414)
-val IosOnRedContainerDark = Color(0xFFFFDAD8)
-val IosGreenContainerDark = Color(0xFF0B4620)
-val IosOnGreenContainerDark = Color(0xFFC8F9D4)
+val TelegramOutgoingBubbleDark = Color(0xFF2B5278)
+val TelegramOutgoingSubtleDark = Color(0xFF8AB4DF)
+val TelegramIncomingBubbleDark = Color(0xFF182533)
 
-val IosDarkBackground = Color(0xFF000000)           // True OLED iOS black
-val IosDarkCardSurface = Color(0xFF1C1C1E)          // secondarySystemGroupedBackground
-val IosDarkBubbleIncoming = Color(0xFF2C2C2E)       // iMessage dark incoming gray bubble
-val IosDarkFill = Color(0xFF2C2C2E)                 // tertiarySystemFill
-val IosDarkLabel = Color(0xFFFFFFFF)                // primary label
-val IosDarkSecondaryLabel = Color(0xFFAEAEB2)       // secondaryLabel
-val IosDarkSeparator = Color(0xFF48484A)
-val IosDarkHairline = Color(0xFF2C2C2E)
+// =====================================================================
+// Backward-Compatible Token Aliases (mapped cleanly to Telegram palette)
+// =====================================================================
+val IosBlue = TelegramBlue
+val IosBlueDeep = TelegramBlueDeep
+val IosBlueBright = TelegramBlueBright
+val IosIndigo = TelegramIndigo
+val IosTeal = TelegramTeal
+val IosGreen = TelegramGreen
+val IosRed = TelegramRed
+val IosOrange = TelegramOrange
+val IosPink = TelegramPink
+
+val IosBlueContainerLight = TelegramBlueContainerLight
+val IosOnBlueContainerLight = TelegramOnBlueContainerLight
+val IosRedContainerLight = TelegramRedContainerLight
+val IosOnRedContainerLight = TelegramOnRedContainerLight
+val IosGreenContainerLight = TelegramGreenContainerLight
+val IosOnGreenContainerLight = TelegramOnGreenContainerLight
+
+val IosLightGroupedBackground = TelegramLightGroupedBackground
+val IosLightCardSurface = TelegramLightCardSurface
+val IosLightBubbleIncoming = TelegramIncomingBubbleLight
+val IosLightFill = TelegramLightFill
+val IosLightLabel = TelegramLightLabel
+val IosLightSecondaryLabel = TelegramLightSecondaryLabel
+val IosLightSeparator = TelegramLightDivider
+val IosLightHairline = TelegramLightDivider
+
+val IosDarkBlue = TelegramDarkBlue
+val IosDarkBlueDeep = TelegramDarkBlueDeep
+val IosDarkIndigo = TelegramIndigo
+val IosDarkTeal = TelegramTeal
+val IosDarkGreen = TelegramGreen
+val IosDarkRed = Color(0xFFEF5350)
+val IosDarkOrange = Color(0xFFFFA726)
+val IosDarkPink = Color(0xFFF06292)
+
+val IosBlueContainerDark = Color(0xFF1D3550)
+val IosOnBlueContainerDark = Color(0xFFD6ECFF)
+val IosRedContainerDark = Color(0xFF4E1B1E)
+val IosOnRedContainerDark = Color(0xFFFFCDD2)
+val IosGreenContainerDark = Color(0xFF163A24)
+val IosOnGreenContainerDark = Color(0xFFC8E6C9)
+
+val IosDarkBackground = TelegramDarkBackground
+val IosDarkCardSurface = TelegramDarkCardSurface
+val IosDarkBubbleIncoming = TelegramIncomingBubbleDark
+val IosDarkFill = TelegramDarkFill
+val IosDarkLabel = TelegramDarkLabel
+val IosDarkSecondaryLabel = TelegramDarkSecondaryLabel
+val IosDarkSeparator = TelegramDarkDivider
+val IosDarkHairline = Color(0xFF233040)
 
 // Semantic Aliases
-val OnlinePresenceGreen = IosGreen
-val AwayPresenceAmber = IosOrange
-val ErrorRed = IosRed
-val ErrorContainerLight = IosRedContainerLight
+val OnlinePresenceGreen = TelegramGreen
+val AwayPresenceAmber = TelegramOrange
+val ErrorRed = TelegramRed
+val ErrorContainerLight = TelegramRedContainerLight
 val ErrorContainerDark = IosRedContainerDark
 
-// Dynamic Island & Liquid Glass Surface Tokens
-val DynamicIslandDarkSurface = Color(0xFF10131A)
-val DynamicIslandDarkBorder = Color(0xFF282E3D)
-val AuroraCyan = Color(0xFF22D3EE)
-val AuroraViolet = Color(0xFF7C3AED)
+// Call Stage & Accent Surface Tokens
+val DynamicIslandDarkSurface = Color(0xFF17212B)
+val DynamicIslandDarkBorder = Color(0xFF2B3A4D)
+val AuroraCyan = Color(0xFF2AABEE)
+val AuroraViolet = Color(0xFF3390EC)
 
 // Google Sign-In Mark Tokens
 val GoogleBlue = Color(0xFF4285F4)
@@ -79,34 +132,33 @@ val GoogleRed = Color(0xFFEA4335)
 val GoogleYellow = Color(0xFFFBBC05)
 val GoogleGreen = Color(0xFF34A853)
 
-// iOS-Inspired Gradients & Brushes
 object PulseBrushes {
     val BrandGradient: Brush = Brush.linearGradient(
-        colors = listOf(IosBlueBright, IosBlue, IosIndigo)
+        colors = listOf(TelegramBlueBright, TelegramBlue)
     )
 
     val OutgoingBubbleLight: Brush = Brush.verticalGradient(
-        colors = listOf(IosBlueBright, IosBlue)
+        colors = listOf(TelegramOutgoingBubbleLight, TelegramOutgoingBubbleLight)
     )
 
     val OutgoingBubbleDark: Brush = Brush.verticalGradient(
-        colors = listOf(IosDarkBlue, IosDarkBlueDeep)
+        colors = listOf(TelegramOutgoingBubbleDark, TelegramOutgoingBubbleDark)
     )
 
     val StoryRingActive: Brush = Brush.sweepGradient(
-        colors = listOf(IosBlue, IosTeal, IosIndigo, IosPink, IosBlue)
+        colors = listOf(TelegramBlueBright, TelegramBlue, TelegramGreen, TelegramBlueBright)
     )
 
     val UnreadBadgeGradient: Brush = Brush.linearGradient(
-        colors = listOf(IosRed, IosPink)
+        colors = listOf(TelegramBlue, TelegramBlueBright)
     )
 
     val SavedNotesGradientLight: Brush = Brush.linearGradient(
-        colors = listOf(Color(0xFFEAF3FF), Color(0xFFF3EEFF))
+        colors = listOf(Color(0xFFEAF5FF), Color(0xFFF2F8FF))
     )
 
     val SavedNotesGradientDark: Brush = Brush.linearGradient(
-        colors = listOf(Color(0xFF14223B), Color(0xFF231C3A))
+        colors = listOf(Color(0xFF1B2E45), Color(0xFF182533))
     )
 
     val SpotlightCardLight: Brush = Brush.linearGradient(
@@ -114,6 +166,6 @@ object PulseBrushes {
     )
 
     val SpotlightCardDark: Brush = Brush.linearGradient(
-        colors = listOf(Color(0xFF182234), Color(0xFF1C1C1E))
+        colors = listOf(Color(0xFF1D2733), Color(0xFF17212B))
     )
 }

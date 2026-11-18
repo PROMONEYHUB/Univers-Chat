@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.example.notifications.InAppMessageBanner
 
 /**
- * Floating iPhone Dynamic Island-style top notification banner for live incoming messages.
+ * Floating top notification banner for live incoming messages.
  */
 @Composable
 fun IosInAppNotificationBanner(

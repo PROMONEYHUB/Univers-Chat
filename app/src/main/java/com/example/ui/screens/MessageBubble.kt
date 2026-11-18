@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -68,11 +69,18 @@ import com.example.ui.components.ImageUtils
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatMessageClock
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.IosDarkBubbleIncoming
-import com.example.ui.theme.IosLightBubbleIncoming
+import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.PulseBrushes
+import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramDarkBlue
+import com.example.ui.theme.TelegramIncomingBubbleDark
+import com.example.ui.theme.TelegramIncomingBubbleLight
+import com.example.ui.theme.TelegramOutgoingSubtleDark
+import com.example.ui.theme.TelegramOutgoingSubtleLight
+import com.example.ui.theme.TelegramOutgoingTextLight
+import com.example.ui.theme.TelegramTickGreen
 
-val QuickReactionEmojis = listOf("❤️", "👍", "😂", "🔥", "😮", "🙌")
+val QuickReactionEmojis = listOf("❤️", "👍", "🔥", "😂", "🎉", "😢")
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -91,35 +99,50 @@ fun MessageBubble(
     onToggleVoicePlayback: ((Message) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsTelegramDark.current
     val haptics = rememberIosHaptics()
+
     val bubbleShape = if (isOwnMessage) {
         RoundedCornerShape(
-            topStart = 20.dp,
-            bottomStart = 20.dp,
-            topEnd = if (isFirstInCluster) 20.dp else 6.dp,
+            topStart = 18.dp,
+            bottomStart = 18.dp,
+            topEnd = if (isFirstInCluster) 18.dp else 6.dp,
             bottomEnd = if (isLastInCluster) 4.dp else 6.dp
         )
     } else {
         RoundedCornerShape(
-            topEnd = 20.dp,
-            bottomEnd = 20.dp,
-            topStart = if (isFirstInCluster) 20.dp else 6.dp,
+            topEnd = 18.dp,
+            bottomEnd = 18.dp,
+            topStart = if (isFirstInCluster) 18.dp else 6.dp,
             bottomStart = if (isLastInCluster) 4.dp else 6.dp
         )
     }
 
-    val incomingBubbleColor = if (isDark) IosDarkBubbleIncoming else IosLightBubbleIncoming
     val bubbleBrush: Brush = if (isOwnMessage) {
         if (isDark) PulseBrushes.OutgoingBubbleDark else PulseBrushes.OutgoingBubbleLight
     } else {
-        SolidColor(incomingBubbleColor)
+        SolidColor(if (isDark) TelegramIncomingBubbleDark else TelegramIncomingBubbleLight)
     }
-    val textColor = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.onSurface
-    val subtleColor = if (isOwnMessage) {
-        Color.White.copy(alpha = 0.80f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+
+    val textColor = when {
+        isOwnMessage && isDark -> Color.White
+        isOwnMessage && !isDark -> TelegramOutgoingTextLight
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val subtleColor = when {
+        isOwnMessage && isDark -> TelegramOutgoingSubtleDark
+        isOwnMessage && !isDark -> TelegramOutgoingSubtleLight
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val tickColor = when {
+        !isOwnMessage -> subtleColor
+        isDark -> TelegramDarkBlue
+        else -> TelegramTickGreen
+    }
+    val accentBarColor = when {
+        isOwnMessage && isDark -> TelegramDarkBlue
+        isOwnMessage && !isDark -> TelegramTickGreen
+        else -> TelegramBlue
     }
 
     val groupedReactions = remember(message.reactions) {
@@ -131,9 +154,9 @@ fun MessageBubble(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                start = 14.dp,
-                end = 14.dp,
-                top = if (isFirstInCluster) 8.dp else 2.dp,
+                start = 10.dp,
+                end = 10.dp,
+                top = if (isFirstInCluster) 6.dp else 2.dp,
                 bottom = if (isLastInCluster) 4.dp else 1.dp
             ),
         horizontalArrangement = if (isOwnMessage) Arrangement.End else Arrangement.Start,
@@ -144,30 +167,25 @@ fun MessageBubble(
                 UserAvatar(
                     name = message.senderName,
                     photoUrl = message.senderPhotoUrl,
-                    size = 30.dp
+                    size = 32.dp
                 )
             } else {
-                Spacer(modifier = Modifier.size(30.dp))
+                Spacer(modifier = Modifier.size(32.dp))
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
         }
 
         Column(
             horizontalAlignment = if (isOwnMessage) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 314.dp)
+            modifier = Modifier.widthIn(max = 312.dp)
         ) {
-            if (!isOwnMessage && isGroup && isFirstInCluster) {
-                Text(
-                    text = message.senderName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 3.dp)
-                )
-            }
-
             Box(
                 modifier = Modifier
+                    .shadow(
+                        elevation = if (isDark) 0.dp else 1.5.dp,
+                        shape = bubbleShape,
+                        clip = false
+                    )
                     .clip(bubbleShape)
                     .background(bubbleBrush)
                     .combinedClickable(
@@ -181,7 +199,17 @@ fun MessageBubble(
                         }
                     )
             ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    if (!isOwnMessage && isGroup && isFirstInCluster) {
+                        Text(
+                            text = message.senderName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TelegramBlue,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
+
                     if (message.isForwarded) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -190,15 +218,15 @@ fun MessageBubble(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.Forward,
                                 contentDescription = null,
-                                tint = subtleColor,
+                                tint = accentBarColor,
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Forwarded",
+                                text = "Forwarded message",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = subtleColor,
-                                fontWeight = FontWeight.Medium
+                                color = accentBarColor,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -207,33 +235,28 @@ fun MessageBubble(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 6.dp)
                                 .height(IntrinsicSize.Min)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isOwnMessage) Color.White.copy(alpha = 0.18f)
-                                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
-                                )
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(accentBarColor.copy(alpha = if (isDark) 0.22f else 0.12f))
                         ) {
                             Box(
                                 modifier = Modifier
                                     .width(3.dp)
                                     .fillMaxHeight()
-                                    .background(
-                                        if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary
-                                    )
+                                    .background(accentBarColor)
                             )
-                            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                            Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)) {
                                 Text(
                                     text = message.replyToSenderName ?: "Reply",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary
+                                    color = accentBarColor
                                 )
                                 Text(
                                     text = message.replyToPreview,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = subtleColor,
+                                    color = textColor.copy(alpha = 0.85f),
                                     maxLines = 2
                                 )
                             }
@@ -248,8 +271,8 @@ fun MessageBubble(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(196.dp)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .height(204.dp)
+                                    .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
                                         onClick = {
                                             if (onOpenImage != null) onOpenImage(bitmap)
@@ -283,7 +306,7 @@ fun MessageBubble(
                                 }
                             }
                             if (message.text.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                             }
                         }
                     }
@@ -293,6 +316,7 @@ fun MessageBubble(
                             VoiceMessageBubbleContent(
                                 message = message,
                                 isOwnMessage = isOwnMessage,
+                                accentColor = accentBarColor,
                                 textColor = textColor,
                                 subtleColor = subtleColor,
                                 playbackState = voicePlaybackState,
@@ -306,7 +330,7 @@ fun MessageBubble(
                             PollBubbleContent(
                                 message = message,
                                 currentUserId = currentUserId,
-                                isOwnMessage = isOwnMessage,
+                                accentColor = accentBarColor,
                                 textColor = textColor,
                                 subtleColor = subtleColor,
                                 onVotePoll = onVotePoll
@@ -321,7 +345,7 @@ fun MessageBubble(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -330,7 +354,7 @@ fun MessageBubble(
                     ) {
                         if (message.isEdited) {
                             Text(
-                                text = "Edited · ",
+                                text = "edited  ",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = subtleColor
                             )
@@ -340,34 +364,38 @@ fun MessageBubble(
                             style = MaterialTheme.typography.labelSmall,
                             color = subtleColor
                         )
+                        if (isOwnMessage) {
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.DoneAll,
+                                contentDescription = "Delivered",
+                                tint = tickColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // iOS Tapback-style Reaction Pills
             if (groupedReactions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     groupedReactions.forEach { (emoji, count) ->
                         val isMine = myReaction == emoji
                         Surface(
                             shape = CircleShape,
-                            color = if (isMine) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surface
+                            color = when {
+                                isMine -> TelegramBlue
+                                isOwnMessage && !isDark -> Color(0xFFD9F3C4)
+                                isDark -> Color(0xFF213143)
+                                else -> Color.White.copy(alpha = 0.94f)
                             },
                             shadowElevation = 1.dp,
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .border(
-                                    width = 0.8.dp,
-                                    color = if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                    shape = CircleShape
-                                )
                                 .clickable {
                                     haptics.selectionTick()
                                     onToggleReaction(emoji)
@@ -383,7 +411,7 @@ fun MessageBubble(
                                     text = count.toString(),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                                    color = if (isMine) Color.White else textColor
                                 )
                             }
                         }
@@ -398,7 +426,7 @@ fun MessageBubble(
 private fun PollBubbleContent(
     message: Message,
     currentUserId: String,
-    isOwnMessage: Boolean,
+    accentColor: Color,
     textColor: Color,
     subtleColor: Color,
     onVotePoll: (Int) -> Unit
@@ -411,17 +439,25 @@ private fun PollBubbleContent(
         Icon(
             imageVector = Icons.Rounded.Poll,
             contentDescription = null,
-            tint = textColor,
+            tint = accentColor,
             modifier = Modifier.size(18.dp)
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
-            text = message.pollQuestion ?: message.text,
-            style = MaterialTheme.typography.titleSmall,
+            text = "Anonymous Poll",
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = textColor
+            color = accentColor
         )
     }
+
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = message.pollQuestion ?: message.text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = textColor
+    )
 
     Spacer(modifier = Modifier.height(10.dp))
 
@@ -433,21 +469,17 @@ private fun PollBubbleContent(
             val isSelected = myVote == index
 
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = if (isOwnMessage) {
-                    Color.White.copy(alpha = if (isSelected) 0.28f else 0.14f)
-                } else {
-                    if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                },
+                shape = RoundedCornerShape(12.dp),
+                color = accentColor.copy(alpha = if (isSelected) 0.20f else 0.08f),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .clickable {
                         haptics.selectionTick()
                         onVotePoll(index)
                     }
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -461,7 +493,7 @@ private fun PollBubbleContent(
                                 Icon(
                                     imageVector = Icons.Rounded.CheckCircle,
                                     contentDescription = "Your vote",
-                                    tint = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary,
+                                    tint = accentColor,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -477,17 +509,17 @@ private fun PollBubbleContent(
                             text = if (totalVotes > 0) "${(targetFraction * 100).toInt()}%" else "0%",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = subtleColor
+                            color = accentColor
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
                     LinearProgressIndicator(
                         progress = { animatedFraction },
-                        color = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary,
-                        trackColor = if (isOwnMessage) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.outlineVariant,
+                        color = accentColor,
+                        trackColor = accentColor.copy(alpha = 0.18f),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
+                            .height(5.dp)
                             .clip(CircleShape)
                     )
                 }
@@ -495,7 +527,7 @@ private fun PollBubbleContent(
         }
     }
 
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(7.dp))
     Text(
         text = "$totalVotes vote${if (totalVotes == 1) "" else "s"} · Tap an option to vote",
         style = MaterialTheme.typography.labelSmall,
@@ -507,6 +539,7 @@ private fun PollBubbleContent(
 private fun VoiceMessageBubbleContent(
     message: Message,
     isOwnMessage: Boolean,
+    accentColor: Color,
     textColor: Color,
     subtleColor: Color,
     playbackState: VoicePlaybackState,
@@ -525,12 +558,12 @@ private fun VoiceMessageBubbleContent(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .widthIn(min = 196.dp, max = 260.dp)
+            .widthIn(min = 200.dp, max = 264.dp)
             .padding(vertical = 2.dp)
     ) {
         Surface(
             shape = CircleShape,
-            color = if (isOwnMessage) Color.White.copy(alpha = 0.24f) else MaterialTheme.colorScheme.primary,
+            color = accentColor,
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
@@ -553,8 +586,8 @@ private fun VoiceMessageBubbleContent(
         Column(modifier = Modifier.weight(1f)) {
             LinearProgressIndicator(
                 progress = { animatedProgress },
-                color = if (isOwnMessage) Color.White else MaterialTheme.colorScheme.primary,
-                trackColor = if (isOwnMessage) Color.White.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant,
+                color = accentColor,
+                trackColor = accentColor.copy(alpha = 0.25f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
@@ -567,7 +600,7 @@ private fun VoiceMessageBubbleContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Voice note",
+                    text = "Voice message",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = textColor
@@ -612,7 +645,7 @@ fun MessageActionsDialog(
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Text(
-                    text = "Tapback",
+                    text = "React",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -658,7 +691,7 @@ fun MessageActionsDialog(
                 if (hasCopyableText && onCopy != null) {
                     ActionRow(
                         icon = Icons.Rounded.ContentCopy,
-                        label = "Copy text",
+                        label = "Copy",
                         onClick = {
                             haptics.lightTap()
                             onCopy()
@@ -682,7 +715,7 @@ fun MessageActionsDialog(
                 if (onTogglePin != null) {
                     ActionRow(
                         icon = Icons.Rounded.PushPin,
-                        label = if (isPinnedInChat) "Unpin from chat" else "Pin in chat",
+                        label = if (isPinnedInChat) "Unpin" else "Pin",
                         onClick = {
                             haptics.selectionTick()
                             onTogglePin()
@@ -694,7 +727,7 @@ fun MessageActionsDialog(
                 if (isOwnMessage && message.type == Message.TYPE_TEXT) {
                     ActionRow(
                         icon = Icons.Rounded.Edit,
-                        label = "Edit message",
+                        label = "Edit",
                         onClick = {
                             haptics.lightTap()
                             onEdit()
@@ -706,7 +739,7 @@ fun MessageActionsDialog(
                 if (isOwnMessage) {
                     ActionRow(
                         icon = Icons.Rounded.Delete,
-                        label = "Delete message",
+                        label = "Delete",
                         tint = MaterialTheme.colorScheme.error,
                         onClick = {
                             haptics.impactMedium()

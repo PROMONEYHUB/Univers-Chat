@@ -125,10 +125,57 @@ test("Signed-in user can create own profile and query discoverable profiles, but
   // Blanket unfiltered list query fails
   await assertFails(bobDb.collection("user_profiles").get());
 
+  // Owner can update displayName, bio, and upload a compressed JPEG data-URI profile picture
+  const sampleAvatarDataUri = "data:image/jpeg;base64," + "A".repeat(4096);
+  await assertSucceeds(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      displayName: "Alice Rivera",
+      bio: "Product designer & coffee enthusiast.",
+      photoUrl: sampleAvatarDataUri,
+      updatedAt: ts(),
+    })
+  );
+
+  // Owner can clear their profile picture back to empty string
+  await assertSucceeds(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      photoUrl: "",
+      updatedAt: ts(),
+    })
+  );
+
+  // Oversized profile picture (> 60,000 chars) fails
+  await assertFails(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      photoUrl: "data:image/jpeg;base64," + "A".repeat(60000),
+      updatedAt: ts(),
+    })
+  );
+
+  // Empty displayName or oversized bio (> 160 chars) fails
+  await assertFails(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      displayName: "",
+      updatedAt: ts(),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      bio: "x".repeat(161),
+      updatedAt: ts(),
+    })
+  );
+
   // Cross-user update fails
   await assertFails(
     bobDb.collection("user_profiles").doc(ALICE_UID).update({
       displayName: "Hacked Alice",
+      updatedAt: ts(),
+    })
+  );
+  await assertFails(
+    bobDb.collection("user_profiles").doc(ALICE_UID).update({
+      photoUrl: sampleAvatarDataUri,
       updatedAt: ts(),
     })
   );
@@ -654,6 +701,94 @@ test("Participants can send voice notes, pin/mute threads, pin messages, forward
   await assertFails(
     charlieDb.collection("conversations").doc("dm_social").update({
       pinnedBy: { [CHARLIE_UID]: true },
+      updatedAt: ts(),
+    })
+  );
+});
+
+// --- 8. Real-Time Typing Indicators ---
+
+test("Participants can set and clear own typingBy timestamp without spoofing others; outsiders fail", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+
+  const convRef = aliceDb.collection("conversations").doc("dm_typing");
+  await assertSucceeds(
+    convRef.set({
+      type: "direct",
+      title: "",
+      createdBy: ALICE_UID,
+      participantIds: [ALICE_UID, BOB_UID],
+      participantNames: { [ALICE_UID]: "Alice", [BOB_UID]: "Bob" },
+      participantPhotos: {},
+      lastMessageText: "",
+      lastMessageSenderId: "",
+      lastMessageSenderName: "",
+      lastMessageType: "",
+      lastMessageAt: ts(),
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 0 },
+      typingBy: {},
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice marks herself typing
+  const aliceTs = ts();
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_typing").update({
+      [`typingBy.${ALICE_UID}`]: aliceTs,
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob marks himself typing concurrently without disturbing Alice's key
+  await assertSucceeds(
+    bobDb.collection("conversations").doc("dm_typing").update({
+      [`typingBy.${BOB_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT spoof or overwrite Alice's typing entry
+  await assertFails(
+    bobDb.collection("conversations").doc("dm_typing").update({
+      [`typingBy.${ALICE_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Charlie (non-participant) CANNOT update typingBy
+  await assertFails(
+    charlieDb.collection("conversations").doc("dm_typing").update({
+      [`typingBy.${CHARLIE_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice clears ONLY her own typing entry alongside sending a message (preserving Bob's timestamp)
+  const snapAfterBob = await aliceDb.collection("conversations").doc("dm_typing").get();
+  const preservedTyping = { ...(snapAfterBob.data().typingBy || {}) };
+  delete preservedTyping[ALICE_UID];
+
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_typing").update({
+      lastMessageText: "Sent!",
+      lastMessageSenderId: ALICE_UID,
+      lastMessageSenderName: "Alice",
+      lastMessageType: "text",
+      lastMessageAt: ts(),
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 1 },
+      typingBy: preservedTyping,
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob clears ONLY his own typing entry directly (Action 7)
+  await assertSucceeds(
+    bobDb.collection("conversations").doc("dm_typing").update({
+      typingBy: {},
       updatedAt: ts(),
     })
   );

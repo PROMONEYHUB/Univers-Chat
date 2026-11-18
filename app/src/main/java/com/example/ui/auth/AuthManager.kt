@@ -243,6 +243,9 @@ suspend fun verifyPhoneOtpAndSignIn(
 object AuthProfilePrefill {
     @Volatile
     var pendingDisplayName: String? = null
+
+    @Volatile
+    var pendingPhotoUrl: String? = null
 }
 
 suspend fun signInWithPhoneCredential(

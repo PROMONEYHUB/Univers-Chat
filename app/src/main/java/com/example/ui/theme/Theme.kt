@@ -7,29 +7,33 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-private val IosDarkColorScheme = darkColorScheme(
-    primary = IosDarkBlue,
+val LocalIsTelegramDark = compositionLocalOf { false }
+
+private val TelegramDarkColorScheme = darkColorScheme(
+    primary = TelegramDarkBlue,
     onPrimary = Color.White,
     primaryContainer = IosBlueContainerDark,
     onPrimaryContainer = IosOnBlueContainerDark,
-    secondary = IosDarkRed,
+    secondary = TelegramBlueBright,
     onSecondary = Color.White,
-    secondaryContainer = IosRedContainerDark,
-    onSecondaryContainer = IosOnRedContainerDark,
-    tertiary = IosDarkGreen,
+    secondaryContainer = Color(0xFF1E3247),
+    onSecondaryContainer = Color(0xFFD1E9FF),
+    tertiary = TelegramGreen,
     onTertiary = Color.White,
     tertiaryContainer = IosGreenContainerDark,
     onTertiaryContainer = IosOnGreenContainerDark,
-    background = IosDarkBackground,
-    onBackground = IosDarkLabel,
-    surface = IosDarkCardSurface,
-    onSurface = IosDarkLabel,
-    surfaceVariant = IosDarkFill,
-    onSurfaceVariant = IosDarkSecondaryLabel,
-    outline = IosDarkSeparator,
+    background = TelegramDarkBackground,
+    onBackground = TelegramDarkLabel,
+    surface = TelegramDarkCardSurface,
+    onSurface = TelegramDarkLabel,
+    surfaceVariant = TelegramDarkFill,
+    onSurfaceVariant = TelegramDarkSecondaryLabel,
+    outline = Color(0xFF334357),
     outlineVariant = IosDarkHairline,
     error = IosDarkRed,
     onError = Color.White,
@@ -37,38 +41,38 @@ private val IosDarkColorScheme = darkColorScheme(
     onErrorContainer = IosOnRedContainerDark
 )
 
-private val IosLightColorScheme = lightColorScheme(
-    primary = IosBlue,
+private val TelegramLightColorScheme = lightColorScheme(
+    primary = TelegramBlue,
     onPrimary = Color.White,
-    primaryContainer = IosBlueContainerLight,
-    onPrimaryContainer = IosOnBlueContainerLight,
-    secondary = IosRed,
+    primaryContainer = TelegramBlueContainerLight,
+    onPrimaryContainer = TelegramOnBlueContainerLight,
+    secondary = TelegramSteelBlue,
     onSecondary = Color.White,
-    secondaryContainer = IosRedContainerLight,
-    onSecondaryContainer = IosOnRedContainerLight,
-    tertiary = IosGreen,
+    secondaryContainer = Color(0xFFE6EEF5),
+    onSecondaryContainer = Color(0xFF203A52),
+    tertiary = TelegramGreen,
     onTertiary = Color.White,
-    tertiaryContainer = IosGreenContainerLight,
-    onTertiaryContainer = IosOnGreenContainerLight,
-    background = IosLightGroupedBackground,
-    onBackground = IosLightLabel,
-    surface = IosLightCardSurface,
-    onSurface = IosLightLabel,
-    surfaceVariant = IosLightFill,
-    onSurfaceVariant = IosLightSecondaryLabel,
-    outline = IosLightSeparator,
-    outlineVariant = IosLightHairline,
-    error = IosRed,
+    tertiaryContainer = TelegramGreenContainerLight,
+    onTertiaryContainer = TelegramOnGreenContainerLight,
+    background = TelegramLightBackground,
+    onBackground = TelegramLightLabel,
+    surface = TelegramLightCardSurface,
+    onSurface = TelegramLightLabel,
+    surfaceVariant = TelegramLightFill,
+    onSurfaceVariant = TelegramLightSecondaryLabel,
+    outline = Color(0xFFC5CCD4),
+    outlineVariant = TelegramLightDivider,
+    error = TelegramRed,
     onError = Color.White,
-    errorContainer = ErrorContainerLight,
-    onErrorContainer = IosOnRedContainerLight
+    errorContainer = TelegramRedContainerLight,
+    onErrorContainer = TelegramOnRedContainerLight
 )
 
 val PulseShapes = Shapes(
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp),
-    extraLarge = RoundedCornerShape(28.dp)
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(22.dp)
 )
 
 @Composable
@@ -76,12 +80,14 @@ fun PulseChatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) IosDarkColorScheme else IosLightColorScheme
+    val colorScheme = if (darkTheme) TelegramDarkColorScheme else TelegramLightColorScheme
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = PulseShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalIsTelegramDark provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = PulseShapes,
+            content = content
+        )
+    }
 }

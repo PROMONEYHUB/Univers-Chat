@@ -101,7 +101,9 @@ class MessagingRepository(
         try {
             val profileSnap = profileRef.get().await()
             val pendingName = AuthProfilePrefill.pendingDisplayName?.takeIf { it.isNotBlank() }
+            val pendingPhoto = AuthProfilePrefill.pendingPhotoUrl?.takeIf { it.isNotBlank() }
             AuthProfilePrefill.pendingDisplayName = null
+            AuthProfilePrefill.pendingPhotoUrl = null
             if (!profileSnap.exists()) {
                 val rawName = pendingName
                     ?: firebaseUser.displayName?.trim()?.takeIf { it.isNotBlank() }
@@ -113,7 +115,7 @@ class MessagingRepository(
                     .ifBlank { "user_${uid.take(6)}" }
                     .take(28)
                     .let { if (it.length < 2) "u_${uid.take(6)}" else it }
-                val photoUrl = firebaseUser.photoUrl?.toString()?.take(500) ?: ""
+                val photoUrl = (pendingPhoto ?: firebaseUser.photoUrl?.toString().orEmpty()).take(500)
 
                 val payload = mapOf(
                     "userId" to uid,
@@ -136,9 +138,9 @@ class MessagingRepository(
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 val existingPhoto = profileSnap.getString("photoUrl").orEmpty()
-                val googlePhoto = firebaseUser.photoUrl?.toString()?.take(500).orEmpty()
-                if (existingPhoto.isBlank() && googlePhoto.isNotBlank()) {
-                    updates["photoUrl"] = googlePhoto
+                val fallbackPhoto = (pendingPhoto ?: firebaseUser.photoUrl?.toString().orEmpty()).take(500)
+                if (existingPhoto.isBlank() && fallbackPhoto.isNotBlank()) {
+                    updates["photoUrl"] = fallbackPhoto
                 }
                 profileRef.update(updates).await()
             }
@@ -242,7 +244,8 @@ class MessagingRepository(
         bio: String,
         statusVibe: String,
         isOnline: Boolean,
-        isDiscoverable: Boolean
+        isDiscoverable: Boolean,
+        photoUrl: String? = null
     ): Result<Unit> = runCatching {
         val uid = requireUserId()
         val docRef = db.collection(USER_PROFILES_COLLECTION).document(uid)
@@ -252,8 +255,11 @@ class MessagingRepository(
             .replace(Regex("[^a-z0-9_]"), "")
             .take(32)
         require(cleanHandle.length >= 2) { "Handle must be at least 2 characters." }
+        if (photoUrl != null) {
+            require(photoUrl.length <= MAX_PROFILE_PHOTO_LENGTH) { "Profile picture exceeds maximum allowed size." }
+        }
 
-        val updates = mapOf(
+        val updates = mutableMapOf<String, Any>(
             "displayName" to cleanName,
             "handle" to cleanHandle,
             "bio" to bio.trim().take(160),
@@ -263,8 +269,32 @@ class MessagingRepository(
             "lastSeenAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        if (photoUrl != null) {
+            updates["photoUrl"] = photoUrl
+        }
         try {
             docRef.update(updates).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun updateProfilePhoto(photoUrl: String): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        require(photoUrl.length <= MAX_PROFILE_PHOTO_LENGTH) {
+            "Profile picture is too large. Please pick a smaller image."
+        }
+        val docRef = db.collection(USER_PROFILES_COLLECTION).document(uid)
+        try {
+            docRef.update(
+                mapOf(
+                    "photoUrl" to photoUrl,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -367,8 +397,8 @@ class MessagingRepository(
                     otherProfile.userId to otherProfile.displayName
                 )
                 val participantPhotos = mapOf(
-                    currentProfile.userId to currentProfile.photoUrl,
-                    otherProfile.userId to otherProfile.photoUrl
+                    currentProfile.userId to compactSnapshotPhoto(currentProfile.photoUrl),
+                    otherProfile.userId to compactSnapshotPhoto(otherProfile.photoUrl)
                 )
                 val unreadCounts = participantIds.associateWith { 0L }
 
@@ -388,6 +418,7 @@ class MessagingRepository(
                     "unreadCounts" to unreadCounts,
                     "pinnedBy" to emptyMap<String, Boolean>(),
                     "mutedBy" to emptyMap<String, Boolean>(),
+                    "typingBy" to emptyMap<String, Timestamp>(),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -416,7 +447,7 @@ class MessagingRepository(
         val allProfiles = (listOf(currentProfile) + selectedMembers).distinctBy { it.userId }.take(50)
         val participantIds = allProfiles.map { it.userId }
         val participantNames = allProfiles.associate { it.userId to it.displayName }
-        val participantPhotos = allProfiles.associate { it.userId to it.photoUrl }
+        val participantPhotos = allProfiles.associate { it.userId to compactSnapshotPhoto(it.photoUrl) }
         val unreadCounts = participantIds.associateWith { 0L }
 
         val docRef = db.collection(CONVERSATIONS_COLLECTION).document()
@@ -436,6 +467,7 @@ class MessagingRepository(
             "unreadCounts" to unreadCounts,
             "pinnedBy" to emptyMap<String, Boolean>(),
             "mutedBy" to emptyMap<String, Boolean>(),
+            "typingBy" to emptyMap<String, Timestamp>(),
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
@@ -650,7 +682,7 @@ class MessagingRepository(
             "conversationId" to conversation.id,
             "senderId" to uid,
             "senderName" to senderProfile.displayName.take(60).ifBlank { "Member" },
-            "senderPhotoUrl" to senderProfile.photoUrl.take(500),
+            "senderPhotoUrl" to compactSnapshotPhoto(senderProfile.photoUrl),
             "participantIds" to conversation.participantIds,
             "type" to type,
             "text" to text,
@@ -697,6 +729,7 @@ class MessagingRepository(
             "lastMessageType" to type,
             "lastMessageAt" to FieldValue.serverTimestamp(),
             "unreadCounts" to updatedUnread,
+            "typingBy.$uid" to FieldValue.delete(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
 
@@ -910,6 +943,24 @@ class MessagingRepository(
         }
     }
 
+    suspend fun setTypingStatus(conversationId: String, isTyping: Boolean): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        require(conversationId.isNotBlank()) { "Conversation ID is required." }
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversationId)
+        val payload = mapOf<String, Any>(
+            "typingBy.$uid" to if (isTyping) FieldValue.serverTimestamp() else FieldValue.delete(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        try {
+            convRef.update(payload).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, convRef.path, auth)
+            throw e
+        }
+    }
+
     suspend fun pinMessage(conversationId: String, message: Message?): Result<Unit> = runCatching {
         requireUserId()
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversationId)
@@ -984,7 +1035,7 @@ class MessagingRepository(
             toAdd.forEach { put(it.userId, it.displayName) }
         }
         val updatedPhotos = conversation.participantPhotos.toMutableMap().apply {
-            toAdd.forEach { put(it.userId, it.photoUrl) }
+            toAdd.forEach { put(it.userId, compactSnapshotPhoto(it.photoUrl)) }
         }
         val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
             toAdd.forEach { putIfAbsent(it.userId, 0L) }
@@ -1089,10 +1140,14 @@ class MessagingRepository(
         }
     }
 
+    private fun compactSnapshotPhoto(photoUrl: String): String =
+        photoUrl.takeIf { it.length <= 500 }.orEmpty()
+
     companion object {
         const val USERS_COLLECTION = "users"
         const val USER_PROFILES_COLLECTION = "user_profiles"
         const val CONVERSATIONS_COLLECTION = "conversations"
         const val MESSAGES_SUBCOLLECTION = "messages"
+        private const val MAX_PROFILE_PHOTO_LENGTH = 60_000
     }
 }

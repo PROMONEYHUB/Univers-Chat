@@ -129,7 +129,7 @@ fun NewConversationDialog(
                     .heightIn(max = 760.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // iOS Sheet Grabber
+                    // Sheet Grabber
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -145,7 +145,7 @@ fun NewConversationDialog(
                         )
                     }
 
-                    // iOS Navigation Sheet Header
+                    // Sheet Header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -196,7 +196,7 @@ fun NewConversationDialog(
                         }
                     }
 
-                    // Sliding iOS Mode Switcher
+                    // Sliding Mode Switcher
                     IosSegmentedControl(
                         items = modeTabs,
                         selectedValue = isGroupMode,
@@ -364,7 +364,7 @@ fun NewConversationDialog(
                         }
                     }
 
-                    // Spotlight Search Inside Sheet
+                    // Search Inside Sheet
                     IosSearchField(
                         query = search,
                         onQueryChange = { search = it },

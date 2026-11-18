@@ -6,46 +6,62 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.CallSession
@@ -53,15 +69,15 @@ import com.example.data.model.CallTarget
 import com.example.data.model.Conversation
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
-import com.example.ui.components.GlassmorphismCard
-import com.example.ui.components.IosSearchField
-import com.example.ui.components.IosSegmentedControl
-import com.example.ui.components.LiquidGlassBackdrop
-import com.example.ui.components.SegmentedTabItem
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.PulseBrushes
+import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramDarkBar
+import com.example.ui.theme.TelegramSteelBlue
 import com.example.ui.viewmodel.ChatFilter
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatsScreen(
     currentUserId: String,
@@ -78,301 +94,370 @@ fun ChatsScreen(
     onCreateGroupChat: (title: String, topic: String, members: List<UserProfile>) -> Unit,
     onDeleteConversation: (Conversation, onResult: (Boolean) -> Unit) -> Unit = { _, onResult -> onResult(false) },
     onProfileClick: () -> Unit = {},
+    onOpenDrawer: (() -> Unit)? = null,
     blockedUserIds: Set<String> = emptySet(),
     callHistory: List<CallSession> = emptyList(),
     onTogglePinConversation: (Conversation) -> Unit = {},
     onToggleMuteConversation: (Conversation) -> Unit = {},
     onToggleMarkUnread: (Conversation) -> Unit = {},
     onStartCall: (target: CallTarget, isVideoCall: Boolean) -> Unit = { _, _ -> },
+    externalNewChatTrigger: Int = 0,
+    externalNewGroupTrigger: Int = 0,
+    externalCallHistoryTrigger: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
+    val isDark = LocalIsTelegramDark.current
+    val topBarColor = if (isDark) TelegramDarkBar else TelegramSteelBlue
+
     var showNewChatDialog by remember { mutableStateOf(false) }
     var openDialogInGroupMode by remember { mutableStateOf(false) }
     var showCallHistoryDialog by remember { mutableStateOf(false) }
     var optionsTargetConversation by remember { mutableStateOf<Conversation?>(null) }
+    var isSearchExpanded by rememberSaveable { mutableStateOf(false) }
     val pendingDeleteIds = remember { mutableStateListOf<String>() }
+
+    LaunchedEffect(externalNewChatTrigger) {
+        if (externalNewChatTrigger > 0) {
+            openDialogInGroupMode = false
+            showNewChatDialog = true
+        }
+    }
+    LaunchedEffect(externalNewGroupTrigger) {
+        if (externalNewGroupTrigger > 0) {
+            openDialogInGroupMode = true
+            showNewChatDialog = true
+        }
+    }
+    LaunchedEffect(externalCallHistoryTrigger) {
+        if (externalCallHistoryTrigger > 0) {
+            showCallHistoryDialog = true
+        }
+    }
 
     val peopleList = (peopleState as? UiState.Success)?.data.orEmpty()
     val otherPeople = remember(peopleList, currentUserId, blockedUserIds) {
         peopleList.filter { it.userId != currentUserId && it.userId !in blockedUserIds }
             .sortedByDescending { it.isOnline }
     }
-    val onlinePeople = remember(otherPeople) { otherPeople.filter { it.isOnline } }
     val peopleMap = remember(peopleList) { peopleList.associateBy { it.userId } }
+    val peopleNameMap = remember(peopleList) { peopleList.associate { it.userId to it.displayName } }
     val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
     val unreadConvCount = remember(allConversations, currentUserId) {
         allConversations.count { it.unreadCountFor(currentUserId) > 0L }
     }
 
-    val spotlightThreads = remember(allConversations, currentUserId) {
-        allConversations
-            .sortedWith(
-                compareByDescending<Conversation> { it.unreadCountFor(currentUserId) > 0L }
-                    .thenByDescending { it.lastMessageAt?.toDate()?.time ?: 0L }
-            )
-            .take(3)
-    }
-
-    val segmentedItems = remember(unreadConvCount) {
-        ChatFilter.entries.map { filter ->
-            SegmentedTabItem(
-                value = filter,
-                label = filter.label,
-                badgeCount = if (filter == ChatFilter.UNREAD) unreadConvCount else 0,
-                testTag = "filter_chip_${filter.name.lowercase()}"
-            )
+    var typingClockMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(allConversations, currentUserId) {
+        val hasAnyTyping = allConversations.any { conv -> conv.typingBy.any { it.key != currentUserId } }
+        typingClockMs = System.currentTimeMillis()
+        while (hasAnyTyping) {
+            delay(1500L)
+            typingClockMs = System.currentTimeMillis()
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        LiquidGlassBackdrop()
-
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = Color.Transparent,
-            floatingActionButton = {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    shadowElevation = 10.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(bottom = 4.dp)
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .border(
-                            width = 0.8.dp,
-                            color = Color.White.copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .clickable {
-                            haptics.lightTap()
-                            openDialogInGroupMode = false
-                            showNewChatDialog = true
-                        }
-                        .testTag("new_chat_fab")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .background(PulseBrushes.BrandGradient)
-                            .padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.EditNote,
-                            contentDescription = stringResource(R.string.new_chat),
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "New Chat",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .statusBarsPadding()
-            ) {
-                ChatsHeaderIsland(
-                    currentUserProfile = currentUserProfile,
-                    onlinePeople = onlinePeople,
-                    unreadConvCount = unreadConvCount,
-                    onNewGroupClick = {
-                        openDialogInGroupMode = true
-                        showNewChatDialog = true
-                    },
-                    onCallHistoryClick = { showCallHistoryDialog = true },
-                    onPersonClick = onStartDirectChat,
-                    onProfileClick = onProfileClick
-                )
-
-                IosSearchField(
-                    query = searchQuery,
-                    onQueryChange = onSearchQueryChange,
-                    placeholder = "Search chats, people & topics",
-                    inputTestTag = "chats_search_input",
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
-                )
-
-                when (conversationsState) {
-                    is UiState.Loading -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
-
-                    is UiState.Error -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            GlassmorphismCard(
-                                contentPadding = PaddingValues(20.dp),
-                                borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.45f),
-                                modifier = Modifier.fillMaxWidth()
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            Column(modifier = Modifier.fillMaxWidth().background(topBarColor)) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = topBarColor,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    ),
+                    navigationIcon = {
+                        if (isSearchExpanded) {
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    isSearchExpanded = false
+                                    onSearchQueryChange("")
+                                },
+                                modifier = Modifier.testTag("chats_search_close_button")
                             ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close search"
+                                )
+                            }
+                        } else if (onOpenDrawer != null) {
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    onOpenDrawer()
+                                },
+                                modifier = Modifier.testTag("drawer_menu_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Menu,
+                                    contentDescription = "Open navigation menu"
+                                )
+                            }
+                        }
+                    },
+                    title = {
+                        if (isSearchExpanded) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Color.White.copy(alpha = 0.65f)
+                                    )
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = onSearchQueryChange,
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        color = Color.White
+                                    ),
+                                    cursorBrush = SolidColor(Color.White),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("chats_search_input")
+                                )
+                            }
+                        } else {
+                            Column {
                                 Text(
-                                    text = conversationsState.message,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
+                                    text = if (conversationsState is UiState.Loading) {
+                                        "Connecting…"
+                                    } else {
+                                        stringResource(R.string.app_name)
+                                    },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        if (isSearchExpanded) {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        onSearchQueryChange("")
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear search"
+                                    )
+                                }
+                            }
+                        } else {
+                            currentUserProfile?.let { me ->
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        onStartDirectChat(me)
+                                    },
+                                    modifier = Modifier.testTag("header_saved_messages_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.BookmarkBorder,
+                                        contentDescription = "Saved Messages"
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    showCallHistoryDialog = true
+                                },
+                                modifier = Modifier.testTag("header_call_history_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.History,
+                                    contentDescription = "Call history"
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    isSearchExpanded = true
+                                },
+                                modifier = Modifier.testTag("chats_search_toggle_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "Search chats"
                                 )
                             }
                         }
                     }
+                )
 
-                    is UiState.Success -> {
-                        val filtered = remember(
-                            conversationsState.data,
-                            searchQuery,
-                            selectedFilter,
-                            currentUserId,
-                            pendingDeleteIds.size
-                        ) {
-                            conversationsState.data.filter { conv ->
-                                if (conv.id in pendingDeleteIds) return@filter false
-                                val matchesFilter = when (selectedFilter) {
-                                    ChatFilter.ALL -> true
-                                    ChatFilter.DIRECT -> conv.type == Conversation.TYPE_DIRECT
-                                    ChatFilter.GROUPS -> conv.type == Conversation.TYPE_GROUP
-                                    ChatFilter.UNREAD -> conv.unreadCountFor(currentUserId) > 0L
-                                }
-                                val title = conv.displayTitleFor(currentUserId)
-                                val matchesSearch = searchQuery.isBlank() ||
-                                    title.contains(searchQuery, ignoreCase = true) ||
-                                    conv.lastMessageText.contains(searchQuery, ignoreCase = true) ||
-                                    conv.topic.contains(searchQuery, ignoreCase = true)
-                                matchesFilter && matchesSearch
+                TelegramFolderTabsBar(
+                    selectedFilter = selectedFilter,
+                    unreadConvCount = unreadConvCount,
+                    onSelectFilter = onSelectFilter
+                )
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    haptics.lightTap()
+                    openDialogInGroupMode = false
+                    showNewChatDialog = true
+                },
+                shape = CircleShape,
+                containerColor = TelegramBlue,
+                contentColor = Color.White,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .size(58.dp)
+                    .testTag("new_chat_fab")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = stringResource(R.string.new_chat),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            when (conversationsState) {
+                is UiState.Loading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = TelegramBlue)
+                    }
+                }
+
+                is UiState.Error -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = conversationsState.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                is UiState.Success -> {
+                    val filtered = remember(
+                        conversationsState.data,
+                        searchQuery,
+                        selectedFilter,
+                        currentUserId,
+                        pendingDeleteIds.size
+                    ) {
+                        conversationsState.data.filter { conv ->
+                            if (conv.id in pendingDeleteIds) return@filter false
+                            val matchesFilter = when (selectedFilter) {
+                                ChatFilter.ALL -> true
+                                ChatFilter.DIRECT -> conv.type == Conversation.TYPE_DIRECT
+                                ChatFilter.GROUPS -> conv.type == Conversation.TYPE_GROUP
+                                ChatFilter.UNREAD -> conv.unreadCountFor(currentUserId) > 0L
                             }
+                            val title = conv.displayTitleFor(currentUserId)
+                            val matchesSearch = searchQuery.isBlank() ||
+                                title.contains(searchQuery, ignoreCase = true) ||
+                                conv.lastMessageText.contains(searchQuery, ignoreCase = true) ||
+                                conv.topic.contains(searchQuery, ignoreCase = true)
+                            matchesFilter && matchesSearch
                         }
+                    }
 
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 6.dp, bottom = 112.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            item(key = "active_orbit_strip") {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 96.dp)
+                    ) {
+                        if (otherPeople.isNotEmpty() && searchQuery.isBlank() && selectedFilter == ChatFilter.ALL) {
+                            item(key = "telegram_stories_strip") {
                                 AnimatedVisibility(
-                                    visible = otherPeople.isNotEmpty() && searchQuery.isBlank(),
+                                    visible = true,
                                     enter = fadeIn() + expandVertically(),
                                     exit = fadeOut() + shrinkVertically()
                                 ) {
-                                    ActivePeopleStoryStrip(
+                                    TelegramStoriesRow(
                                         people = otherPeople,
-                                        onNewGroupClick = {
-                                            openDialogInGroupMode = true
-                                            showNewChatDialog = true
-                                        },
                                         onPersonClick = onStartDirectChat
                                     )
                                 }
                             }
+                        }
 
-                            if (searchQuery.isBlank() &&
-                                selectedFilter == ChatFilter.ALL &&
-                                spotlightThreads.size >= 2
-                            ) {
-                                item(key = "spotlight_carousel") {
-                                    SpotlightCarousel(
-                                        conversations = spotlightThreads,
-                                        currentUserId = currentUserId,
-                                        peopleMap = peopleMap,
-                                        onOpenConversation = onOpenConversation
-                                    )
-                                }
-                            }
-
-                            item(key = "filter_segmented_bar") {
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    IosSegmentedControl(
-                                        items = segmentedItems,
-                                        selectedValue = selectedFilter,
-                                        onSelect = onSelectFilter,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 20.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = when {
-                                                searchQuery.isNotBlank() -> "SEARCH RESULTS"
-                                                selectedFilter == ChatFilter.ALL -> "ALL CONVERSATIONS"
-                                                else -> selectedFilter.label.uppercase()
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = "${filtered.size} ${if (filtered.size == 1) "thread" else "threads"}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                        if (filtered.isEmpty()) {
+                            item(key = "empty_chats_card") {
+                                EmptyChatsView(
+                                    isFiltered = searchQuery.isNotBlank() || selectedFilter != ChatFilter.ALL,
+                                    onStartDirect = {
+                                        openDialogInGroupMode = false
+                                        showNewChatDialog = true
+                                    },
+                                    onCreateGroup = {
+                                        openDialogInGroupMode = true
+                                        showNewChatDialog = true
                                     }
-                                }
+                                )
                             }
-
-                            if (filtered.isEmpty()) {
-                                item(key = "empty_chats_card") {
-                                    EmptyChatsView(
-                                        isFiltered = searchQuery.isNotBlank() || selectedFilter != ChatFilter.ALL,
-                                        onStartDirect = {
-                                            openDialogInGroupMode = false
-                                            showNewChatDialog = true
-                                        },
-                                        onCreateGroup = {
-                                            openDialogInGroupMode = true
-                                            showNewChatDialog = true
+                        } else {
+                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { index, conversation ->
+                                val otherId = conversation.otherParticipantId(currentUserId)
+                                val otherProfile = otherId?.let { peopleMap[it] }
+                                val isPendingDelete = conversation.id in pendingDeleteIds
+                                val typingSummary = conversation.formatTypingSummary(
+                                    currentUserId = currentUserId,
+                                    blockedUserIds = blockedUserIds,
+                                    peopleNames = peopleNameMap,
+                                    nowMillis = typingClockMs
+                                )
+                                Box(modifier = Modifier.animateItem()) {
+                                    SwipeToDeleteConversationItem(
+                                        conversation = conversation,
+                                        currentUserId = currentUserId,
+                                        otherProfile = otherProfile,
+                                        isSelected = conversation.id == selectedConversationId,
+                                        isPendingDelete = isPendingDelete,
+                                        showBottomDivider = index < filtered.lastIndex,
+                                        typingText = typingSummary,
+                                        onOpen = { onOpenConversation(conversation.id) },
+                                        onLongPress = { optionsTargetConversation = conversation },
+                                        onDeleteOrLeave = {
+                                            if (conversation.id !in pendingDeleteIds) {
+                                                pendingDeleteIds.add(conversation.id)
+                                            }
+                                            onDeleteConversation(conversation) { success ->
+                                                if (!success) {
+                                                    pendingDeleteIds.remove(conversation.id)
+                                                }
+                                            }
                                         }
                                     )
                                 }
-                            } else {
-                                items(filtered, key = { it.id }) { conversation ->
-                                    val otherId = conversation.otherParticipantId(currentUserId)
-                                    val otherProfile = otherId?.let { peopleMap[it] }
-                                    val isPendingDelete = conversation.id in pendingDeleteIds
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(horizontal = 18.dp)
-                                            .animateItem()
-                                    ) {
-                                        SwipeToDeleteConversationItem(
-                                            conversation = conversation,
-                                            currentUserId = currentUserId,
-                                            otherProfile = otherProfile,
-                                            isSelected = conversation.id == selectedConversationId,
-                                            isPendingDelete = isPendingDelete,
-                                            onOpen = { onOpenConversation(conversation.id) },
-                                            onLongPress = { optionsTargetConversation = conversation },
-                                            onDeleteOrLeave = {
-                                                if (conversation.id !in pendingDeleteIds) {
-                                                    pendingDeleteIds.add(conversation.id)
-                                                }
-                                                onDeleteConversation(conversation) { success ->
-                                                    if (!success) {
-                                                        pendingDeleteIds.remove(conversation.id)
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
+                            }
+                            item(key = "chats_footer_divider") {
+                                HorizontalDivider(
+                                    thickness = 0.5.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
                             }
                         }
                     }

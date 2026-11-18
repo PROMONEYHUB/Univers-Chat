@@ -147,11 +147,11 @@ class CallSignalingRepository(
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
-        callerProfile.photoUrl.takeIf { it.isNotBlank() }?.let {
-            payload["callerPhotoUrl"] = it.take(500)
+        callerProfile.photoUrl.takeIf { it.isNotBlank() && it.length <= 500 }?.let {
+            payload["callerPhotoUrl"] = it
         }
-        target.photoUrl?.takeIf { it.isNotBlank() }?.let {
-            payload["calleePhotoUrl"] = it.take(500)
+        target.photoUrl?.takeIf { it.isNotBlank() && it.length <= 500 }?.let {
+            payload["calleePhotoUrl"] = it
         }
 
         try {

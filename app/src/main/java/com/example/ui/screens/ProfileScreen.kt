@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.Image
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,45 +14,63 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Badge
-import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Wallpaper
+import androidx.compose.material.icons.rounded.AddAPhoto
+import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.DoneAll
-import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,26 +78,31 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import android.widget.Toast
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.PrivateUser
 import com.example.data.model.UserProfile
+import com.example.ui.components.ImageUtils
+import com.example.ui.components.LocalTelegramWallpaper
+import com.example.ui.components.TelegramWallpaperStyle
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.IosBlue
-import com.example.ui.theme.IosGreen
-import com.example.ui.theme.IosIndigo
-import com.example.ui.theme.IosOrange
-import com.example.ui.theme.IosPink
-import com.example.ui.theme.OnlinePresenceGreen
+import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramDarkBar
+import com.example.ui.theme.TelegramGreen
+import com.example.ui.theme.TelegramSteelBlue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class VibePreset(val emoji: String, val label: String)
 
@@ -88,7 +114,7 @@ private val StatusVibePresets = listOf(
     VibePreset("💬", "Up for chat")
 )
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     userProfile: UserProfile?,
@@ -104,11 +130,21 @@ fun ProfileScreen(
     ) -> Unit,
     onUpdatePrivacy: (readReceipts: Boolean, notifications: Boolean) -> Unit,
     onSignOut: () -> Unit,
+    isUploadingPhoto: Boolean = false,
+    onUploadProfilePhoto: (String) -> Unit = {},
+    onRemoveProfilePhoto: () -> Unit = {},
     hasPhoneNotificationPermission: Boolean = true,
     onRequestNotificationPermission: () -> Unit = {},
     blockedUserIds: Set<String> = emptySet(),
     allPeople: List<UserProfile> = emptyList(),
     onUnblockUser: (String) -> Unit = {},
+    showBackButton: Boolean = false,
+    onBack: () -> Unit = {},
+    isNightMode: Boolean = LocalIsTelegramDark.current,
+    onToggleNightMode: () -> Unit = {},
+    wallpaperStyle: TelegramWallpaperStyle = LocalTelegramWallpaper.current,
+    onSelectWallpaper: (TelegramWallpaperStyle) -> Unit = {},
+    onOpenSavedMessages: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var displayName by remember(userProfile?.userId) { mutableStateOf(userProfile?.displayName.orEmpty()) }
@@ -130,276 +166,455 @@ fun ProfileScreen(
     }
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val haptics = rememberIosHaptics()
     val clipboardManager = LocalClipboardManager.current
+    val isDark = LocalIsTelegramDark.current
+    val headerBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val sectionSpacerBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+
     var showBlockedDialog by remember { mutableStateOf(false) }
+    var showPhotoPreview by remember { mutableStateOf(false) }
+    var isEncodingPhoto by remember { mutableStateOf(false) }
+
+    val photoBusy = isUploadingPhoto || isEncodingPhoto
+    val currentPhotoUrl = userProfile?.photoUrl.orEmpty()
     val readReceipts = privateUser?.readReceiptsEnabled ?: true
     val notifications = privateUser?.notificationsEnabled ?: true
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-
-        // Apple ID-Style Editorial Cover Card
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(22.dp)
-                )
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(112.dp)
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_profile_banner),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f))
-                                )
-                            )
-                    )
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                isEncodingPhoto = true
+                val dataUri = withContext(Dispatchers.IO) {
+                    ImageUtils.encodeAvatarToDataUri(context, uri)
                 }
+                isEncodingPhoto = false
+                if (dataUri == null) {
+                    Toast.makeText(
+                        context,
+                        "Could not process the selected photo. Please try another image.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    haptics.success()
+                    onUploadProfilePhoto(dataUri)
+                }
+            }
+        }
+    }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp)
-                        .padding(bottom = 18.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .offset(y = (-36).dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .padding(4.dp)
+    val launchAvatarPicker = {
+        haptics.lightTap()
+        avatarPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = headerBg,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                ),
+                navigationIcon = {
+                    if (showBackButton) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.testTag("settings_back_button")
                         ) {
-                            UserAvatar(
-                                name = displayName.ifBlank { userProfile?.displayName ?: "You" },
-                                photoUrl = userProfile?.photoUrl,
-                                size = 80.dp,
-                                showPresence = true,
-                                isOnline = isOnline,
-                                showStoryRing = isOnline
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back"
                             )
                         }
-
-                        Surface(
-                            shape = CircleShape,
-                            color = if (isOnline) MaterialTheme.colorScheme.tertiaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    }
+                },
+                title = {
+                    Text(
+                        text = stringResource(R.string.my_profile_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // Telegram Steel-Blue Profile Hero Band with Uploadable Avatar & Live Bio Preview
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(headerBg)
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(108.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !photoBusy) {
+                                if (currentPhotoUrl.isNotBlank()) {
+                                    haptics.lightTap()
+                                    showPhotoPreview = true
+                                } else {
+                                    launchAvatarPicker()
+                                }
+                            }
+                            .testTag("profile_avatar_preview")
+                    ) {
+                        UserAvatar(
+                            name = displayName.ifBlank { userProfile?.displayName ?: "You" },
+                            photoUrl = currentPhotoUrl,
+                            size = 96.dp,
+                            showPresence = true,
+                            isOnline = isOnline,
+                            showStoryRing = false
+                        )
+                        if (photoBusy) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.48f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isOnline) OnlinePresenceGreen else MaterialTheme.colorScheme.outline)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = statusVibe.ifBlank { if (isOnline) "Online" else "Away" },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isOnline) MaterialTheme.colorScheme.onTertiaryContainer
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 3.dp,
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
                         }
                     }
 
-                    Text(
-                        text = displayName.ifBlank { "Univers Member" },
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.offset(y = (-18).dp)
-                    )
-                    Text(
-                        text = "@${handle.ifBlank { "member" }} · Tap to copy",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
+                    // Accessible 48dp touch target hosting the camera badge
+                    Box(
                         modifier = Modifier
-                            .offset(y = (-16).dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                haptics.lightTap()
-                                val h = "@${handle.ifBlank { "member" }}"
-                                clipboardManager.setText(AnnotatedString(h))
-                                Toast.makeText(context, "Copied $h", Toast.LENGTH_SHORT).show()
+                            .align(Alignment.BottomEnd)
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !photoBusy) { launchAvatarPicker() }
+                            .testTag("upload_profile_photo_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = TelegramBlue,
+                            shadowElevation = 3.dp,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .border(2.dp, headerBg, CircleShape)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CameraAlt,
+                                    contentDescription = stringResource(R.string.upload_profile_photo),
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = displayName.ifBlank { "Univers Member" },
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                Text(
+                    text = buildString {
+                        append(if (isOnline) "online" else "last seen recently")
+                        if (handle.isNotBlank()) {
+                            append(" · @$handle")
+                        }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.84f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (bio.trim().isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = bio.trim(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.90f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (!privateUser?.email.isNullOrBlank()) {
+                }
+
+                if (statusVibe.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.16f)
+                    ) {
                         Text(
-                            text = privateUser?.email.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.offset(y = (-12).dp)
+                            text = statusVibe,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
                         )
                     }
                 }
             }
-        }
 
-        // Status Vibe Presets
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(20.dp)
-                )
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                IosSectionHeaderRow(
-                    icon = Icons.Rounded.AutoAwesome,
-                    badgeColor = IosPink,
-                    title = "Current Vibe"
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                FlowRow(
+            // Quick Profile Photo Action Bar
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatusVibePresets.forEach { preset ->
-                        val selected = statusVibe == preset.label
-                        Surface(
-                            shape = CircleShape,
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    TextButton(
+                        onClick = launchAvatarPicker,
+                        enabled = !photoBusy,
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp)
+                            .testTag("profile_set_photo_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AddAPhoto,
+                            contentDescription = null,
+                            tint = TelegramBlue,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (currentPhotoUrl.isBlank()) {
+                                stringResource(R.string.upload_profile_photo)
+                            } else {
+                                stringResource(R.string.change_profile_photo)
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                            color = TelegramBlue
+                        )
+                    }
+
+                    if (currentPhotoUrl.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                haptics.impactMedium()
+                                onRemoveProfilePhoto()
+                            },
+                            enabled = !photoBusy,
                             modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable {
-                                    haptics.selectionTick()
-                                    statusVibe = preset.label
-                                }
+                                .defaultMinSize(minHeight = 48.dp)
+                                .testTag("remove_profile_photo_button")
                         ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(19.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "${preset.emoji} ${preset.label}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                text = stringResource(R.string.remove_profile_photo),
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = statusVibe,
-                    onValueChange = { statusVibe = it.take(60) },
-                    label = { Text("Custom status vibe") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
-        }
 
-        // iOS Settings Grouped Profile Card
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(20.dp)
-                )
-        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .background(sectionSpacerBg)
+            )
+
+            // Edit Profile Section (Display Name, Short Bio, Username, Status Vibe)
             Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(bottom = 18.dp)
             ) {
-                IosSectionHeaderRow(
-                    icon = Icons.Rounded.Badge,
-                    badgeColor = IosBlue,
-                    title = "Public Directory Info"
-                )
-                OutlinedTextField(
-                    value = displayName,
-                    onValueChange = { displayName = it.take(60) },
-                    label = { Text("Display Name") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("profile_display_name_input")
-                )
-                OutlinedTextField(
-                    value = handle,
-                    onValueChange = { handle = it.lowercase().replace(Regex("[^a-z0-9_]"), "").take(32) },
-                    label = { Text("Handle") },
-                    prefix = { Text("@") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("profile_handle_input")
-                )
-                OutlinedTextField(
-                    value = bio,
-                    onValueChange = { bio = it.take(160) },
-                    label = { Text("Bio") },
-                    minLines = 2,
-                    maxLines = 3,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                TelegramSectionLabel("Edit Profile")
 
-                IosToggleRow(
-                    icon = Icons.Rounded.Visibility,
-                    badgeColor = IosGreen,
-                    title = "Show as online",
-                    subtitle = "Let friends know when you're active",
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = displayName,
+                        onValueChange = { displayName = it.take(60) },
+                        label = { Text("Display Name") },
+                        placeholder = { Text("Your name shown to others") },
+                        supportingText = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (displayName.trim().isEmpty()) {
+                                        "Display name is required"
+                                    } else {
+                                        "Visible across chats and contacts"
+                                    },
+                                    color = if (displayName.trim().isEmpty()) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                Text("${displayName.length}/60")
+                            }
+                        },
+                        isError = displayName.trim().isEmpty(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_display_name_input")
+                    )
+
+                    OutlinedTextField(
+                        value = bio,
+                        onValueChange = { bio = it.take(160) },
+                        label = { Text("Bio") },
+                        placeholder = { Text(stringResource(R.string.profile_bio_placeholder)) },
+                        supportingText = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("A short bio shown on your profile")
+                                Text("${bio.length}/160")
+                            }
+                        },
+                        minLines = 2,
+                        maxLines = 4,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_bio_input")
+                    )
+
+                    OutlinedTextField(
+                        value = handle,
+                        onValueChange = { handle = it.lowercase().replace(Regex("[^a-z0-9_]"), "").take(32) },
+                        label = { Text("Username") },
+                        prefix = { Text("@") },
+                        supportingText = {
+                            Text(
+                                text = if (handle.trim().length < 2) {
+                                    "Username must be at least 2 characters"
+                                } else {
+                                    "Contacts can find you with @$handle"
+                                }
+                            )
+                        },
+                        isError = handle.trim().length < 2,
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_handle_input")
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        StatusVibePresets.forEach { preset ->
+                            val selected = statusVibe == preset.label
+                            Surface(
+                                shape = CircleShape,
+                                color = if (selected) TelegramBlue else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        haptics.selectionTick()
+                                        statusVibe = preset.label
+                                    }
+                            ) {
+                                Text(
+                                    text = "${preset.emoji} ${preset.label}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = statusVibe,
+                        onValueChange = { statusVibe = it.take(60) },
+                        label = { Text("Status vibe") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                TelegramSwitchRow(
+                    icon = Icons.Outlined.Visibility,
+                    title = "Show Online Status",
+                    subtitle = "Display \"online\" badge to contacts",
                     checked = isOnline,
                     onCheckedChange = { isOnline = it }
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                IosToggleRow(
-                    icon = Icons.Rounded.Public,
-                    badgeColor = IosBlue,
+
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(start = 58.dp)
+                )
+
+                TelegramSwitchRow(
+                    icon = Icons.Outlined.Public,
                     title = "Discoverable in Contacts",
-                    subtitle = "Allow signed-in members to find and message you",
+                    subtitle = "Allow members to find you by @username",
                     checked = isDiscoverable,
                     onCheckedChange = { isDiscoverable = it }
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Button(
                     onClick = {
@@ -407,54 +622,233 @@ fun ProfileScreen(
                         onSaveProfile(displayName, handle, bio, statusVibe, isOnline, isDiscoverable)
                     },
                     enabled = !isBusy && displayName.trim().isNotEmpty() && handle.trim().length >= 2,
-                    shape = CircleShape,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TelegramBlue,
+                        contentColor = Color.White
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .padding(horizontal = 18.dp)
+                        .height(48.dp)
                         .testTag("save_profile_button")
                 ) {
-                    Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Profile", fontWeight = FontWeight.Bold)
+                    if (isBusy) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Saving…", fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Save Profile", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
-        }
 
-        // iOS Settings Messaging Preferences Card
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(20.dp)
-                )
-        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .background(sectionSpacerBg)
+            )
+
+            // Account Info Section
             Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
-                Text(
-                    text = "Messaging Preferences",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                TelegramSectionLabel("Account")
+                TelegramInfoRow(
+                    icon = Icons.Outlined.AlternateEmail,
+                    title = "@${handle.ifBlank { "member" }}",
+                    subtitle = "Username · Tap to copy",
+                    onClick = {
+                        haptics.lightTap()
+                        val h = "@${handle.ifBlank { "member" }}"
+                        clipboardManager.setText(AnnotatedString(h))
+                        Toast.makeText(context, "Copied $h", Toast.LENGTH_SHORT).show()
+                    }
                 )
-                IosToggleRow(
-                    icon = Icons.Rounded.DoneAll,
-                    badgeColor = IosIndigo,
+                if (!privateUser?.email.isNullOrBlank()) {
+                    HorizontalDivider(
+                        thickness = 0.6.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(start = 58.dp)
+                    )
+                    TelegramInfoRow(
+                        icon = Icons.Outlined.Info,
+                        title = privateUser?.email.orEmpty(),
+                        subtitle = "Signed-in account"
+                    )
+                }
+                if (onOpenSavedMessages != null) {
+                    HorizontalDivider(
+                        thickness = 0.6.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(start = 58.dp)
+                    )
+                    TelegramInfoRow(
+                        icon = Icons.Outlined.BookmarkBorder,
+                        title = "Saved Messages",
+                        subtitle = "Open your private cloud storage thread",
+                        onClick = {
+                            haptics.lightTap()
+                            onOpenSavedMessages()
+                        }
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .background(sectionSpacerBg)
+            )
+
+            // Chat Appearance & Wallpaper Section
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                TelegramSectionLabel("Chat Settings")
+
+                TelegramSwitchRow(
+                    icon = Icons.Outlined.DarkMode,
+                    title = "Night Mode",
+                    subtitle = if (isNightMode) "Telegram Night theme active" else "Telegram Day theme active",
+                    checked = isNightMode,
+                    onCheckedChange = { onToggleNightMode() },
+                    modifier = Modifier.testTag("settings_night_mode_switch")
+                )
+
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(start = 58.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Wallpaper,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(18.dp))
+                    Column {
+                        Text(
+                            text = "Chat Wallpaper",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = wallpaperStyle.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 58.dp, end = 16.dp, top = 4.dp, bottom = 14.dp)
+                ) {
+                    items(TelegramWallpaperStyle.entries, key = { it.name }) { style ->
+                        val selected = wallpaperStyle == style
+                        val swatchColors = if (isNightMode) {
+                            listOf(style.darkTop, style.darkBottom)
+                        } else {
+                            listOf(style.lightTop, style.lightBottom)
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    haptics.selectionTick()
+                                    onSelectWallpaper(style)
+                                }
+                                .padding(4.dp)
+                                .testTag("wallpaper_chip_${style.name}")
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 64.dp, height = 84.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Brush.verticalGradient(swatchColors))
+                                    .border(
+                                        width = if (selected) 2.5.dp else 1.dp,
+                                        color = if (selected) TelegramBlue else MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(12.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (selected) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = TelegramBlue,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Check,
+                                                contentDescription = "Selected wallpaper",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = style.label.substringBefore(" "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) TelegramBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(start = 58.dp)
+                )
+
+                TelegramSwitchRow(
+                    icon = Icons.Outlined.DoneAll,
                     title = "Send Read Receipts",
-                    subtitle = "Clear unread counts when opening conversations",
+                    subtitle = "Clear unread badges & show ✓✓ read status",
                     checked = readReceipts,
                     onCheckedChange = { onUpdatePrivacy(it, notifications) }
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                IosToggleRow(
-                    icon = Icons.Rounded.NotificationsActive,
-                    badgeColor = IosOrange,
-                    title = "Real-Time Phone Alerts",
-                    subtitle = "Head-up notifications, inline reply & sound for new messages",
+
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(start = 58.dp)
+                )
+
+                TelegramSwitchRow(
+                    icon = Icons.Outlined.Notifications,
+                    title = "Notifications & Sounds",
+                    subtitle = "Real-time message alerts & inline reply",
                     checked = notifications,
                     onCheckedChange = { enabled ->
                         if (enabled && !hasPhoneNotificationPermission) {
@@ -463,61 +857,72 @@ fun ProfileScreen(
                         onUpdatePrivacy(readReceipts, enabled)
                     }
                 )
+
                 if (notifications && !hasPhoneNotificationPermission) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .clickable(onClick = onRequestNotificationPermission)
                             .testTag("enable_notifications_banner")
                     ) {
                         Text(
-                            text = "Phone notification permission is off. Tap here to enable real-time alerts.",
+                            text = "Phone notification permission is off. Tap here to allow notifications.",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                         )
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .background(sectionSpacerBg)
+            )
+
+            // Privacy & Sign Out
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(bottom = 24.dp)
+            ) {
+                TelegramSectionLabel("Privacy & Security")
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .defaultMinSize(minHeight = 52.dp)
                         .clickable {
                             haptics.lightTap()
                             showBlockedDialog = true
                         }
-                        .padding(vertical = 6.dp)
+                        .padding(horizontal = 18.dp, vertical = 12.dp)
                         .testTag("manage_blocked_users_row"),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(MaterialTheme.colorScheme.error),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Block,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Block,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(18.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Blocked Contacts",
+                            text = "Blocked Users",
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = if (blockedUserIds.isEmpty()) "No blocked contacts" else "${blockedUserIds.size} blocked",
+                            text = if (blockedUserIds.isEmpty()) "None" else "${blockedUserIds.size} blocked",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -528,35 +933,46 @@ fun ProfileScreen(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        haptics.impactMedium()
+                        onSignOut()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp)
+                        .height(48.dp)
+                        .testTag("sign_out_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Logout,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Log Out",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
+    }
 
-        OutlinedButton(
-            onClick = {
-                haptics.impactMedium()
-                onSignOut()
-            },
-            shape = CircleShape,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .testTag("sign_out_button")
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Logout,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Sign Out",
-                color = MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
+    if (showPhotoPreview && currentPhotoUrl.isNotBlank()) {
+        AvatarFullScreenDialog(
+            displayName = displayName.ifBlank { userProfile?.displayName ?: "Profile Photo" },
+            photoUrl = currentPhotoUrl,
+            onDismiss = { showPhotoPreview = false },
+            onChangePhoto = launchAvatarPicker,
+            onRemovePhoto = onRemoveProfilePhoto
+        )
     }
 
     if (showBlockedDialog) {
@@ -570,67 +986,92 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun IosSectionHeaderRow(
+private fun TelegramSectionLabel(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp)
+    )
+}
+
+@Composable
+private fun TelegramInfoRow(
     icon: ImageVector,
-    badgeColor: Color,
-    title: String
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)? = null
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(badgeColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(17.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 54.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(18.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
     }
 }
 
 @Composable
-private fun IosToggleRow(
+private fun TelegramSwitchRow(
     icon: ImageVector,
-    badgeColor: Color,
     title: String,
     subtitle: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 56.dp)
+            .clickable {
+                haptics.selectionTick()
+                onCheckedChange(!checked)
+            }
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(18.dp))
+        Column(
             modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(badgeColor),
-            contentAlignment = Alignment.Center
+                .weight(1f)
+                .padding(end = 12.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium
             )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -645,8 +1086,8 @@ private fun IosToggleRow(
             },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = IosGreen,
-                checkedBorderColor = IosGreen
+                checkedTrackColor = TelegramGreen,
+                checkedBorderColor = TelegramGreen
             )
         )
     }

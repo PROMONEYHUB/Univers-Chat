@@ -10,6 +10,11 @@ import com.example.data.model.UserProfile
 import com.example.data.repository.MessagingRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +78,11 @@ class ChatRoomViewModel(
     private val _errorBanner = MutableStateFlow<String?>(null)
     val errorBanner: StateFlow<String?> = _errorBanner.asStateFlow()
 
+    private var isMarkedTyping = false
+    private var lastTypingHeartbeatMs = 0L
+    private var typingIdleJob: Job? = null
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     fun setReplyTarget(message: Message?) {
         _editingMessage.value = null
         _replyingTo.value = message
@@ -85,6 +95,56 @@ class ChatRoomViewModel(
 
     fun clearErrorBanner() {
         _errorBanner.value = null
+    }
+
+    fun onComposerTextChanged(
+        text: String,
+        conversation: Conversation?,
+        isBlocked: Boolean = false
+    ) {
+        if (conversation == null || isBlocked || conversation.participantIds.distinct().size <= 1) {
+            clearTypingStatus()
+            return
+        }
+        if (text.isBlank()) {
+            clearTypingStatus()
+            return
+        }
+
+        typingIdleJob?.cancel()
+        typingIdleJob = viewModelScope.launch {
+            delay(TYPING_IDLE_CLEAR_MS)
+            if (isMarkedTyping) {
+                isMarkedTyping = false
+                lastTypingHeartbeatMs = 0L
+                repository.setTypingStatus(conversationId, isTyping = false)
+            }
+        }
+
+        val now = System.currentTimeMillis()
+        if (!isMarkedTyping || (now - lastTypingHeartbeatMs) >= TYPING_HEARTBEAT_INTERVAL_MS) {
+            isMarkedTyping = true
+            lastTypingHeartbeatMs = now
+            viewModelScope.launch {
+                repository.setTypingStatus(conversationId, isTyping = true)
+            }
+        }
+    }
+
+    fun clearTypingStatus() {
+        typingIdleJob?.cancel()
+        typingIdleJob = null
+        if (!isMarkedTyping) return
+        isMarkedTyping = false
+        lastTypingHeartbeatMs = 0L
+        cleanupScope.launch {
+            repository.setTypingStatus(conversationId, isTyping = false)
+        }
+    }
+
+    override fun onCleared() {
+        clearTypingStatus()
+        super.onCleared()
     }
 
     fun markRead(conversation: Conversation) {
@@ -102,6 +162,10 @@ class ChatRoomViewModel(
     ) {
         val editing = _editingMessage.value
         val replying = _replyingTo.value
+        typingIdleJob?.cancel()
+        typingIdleJob = null
+        isMarkedTyping = false
+        lastTypingHeartbeatMs = 0L
         viewModelScope.launch {
             _isSending.value = true
             val result = if (editing != null) {
@@ -290,5 +354,7 @@ class ChatRoomViewModel(
     private companion object {
         const val TAG = "ChatRoomVM"
         const val STOP_TIMEOUT_MILLIS = 5000L
+        const val TYPING_HEARTBEAT_INTERVAL_MS = 4000L
+        const val TYPING_IDLE_CLEAR_MS = 5500L
     }
 }

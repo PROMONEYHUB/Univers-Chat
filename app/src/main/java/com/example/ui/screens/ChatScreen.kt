@@ -106,7 +106,7 @@ fun ChatScreen(
 
     val canSend = draftText.trim().isNotEmpty()
     val sendScale by animateFloatAsState(targetValue = if (canSend) 1f else 0.90f, label = "chat_send_scale")
-    val resolvedSubtitle = chatSubtitle ?: if (isOnline) "Active now" else "iMessage · Univers Chat"
+    val resolvedSubtitle = chatSubtitle ?: if (isOnline) "online" else "Univers Chat"
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -301,7 +301,7 @@ fun ChatScreen(
                         ) {
                             if (draftText.isEmpty()) {
                                 Text(
-                                    text = "iMessage",
+                                    text = "Message",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -375,8 +375,8 @@ private fun areMessagesClustered(first: Message?, second: Message?): Boolean {
     return abs(t2 - t1) <= 180_000L
 }
 
-@Preview(showBackground = true, name = "iOS ChatScreen Light")
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "iOS ChatScreen Dark")
+@Preview(showBackground = true, name = "Telegram ChatScreen Light")
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "Telegram ChatScreen Dark")
 @Composable
 private fun ChatScreenPreview() {
     val now = Timestamp.now()
@@ -385,14 +385,14 @@ private fun ChatScreenPreview() {
             id = "m1",
             senderId = "alex",
             senderName = "Alex Rivera",
-            text = "Hey! Did you see the new iOS colors across Univers Chat?",
+            text = "Hey! Did you see the new Telegram-inspired layout across Univers Chat?",
             createdAt = now
         ),
         Message(
             id = "m2",
             senderId = "me",
             senderName = "You",
-            text = "Yes! The blue gradient bubbles and grouped surfaces look super clean.",
+            text = "Yes! The classic green and navy bubbles with custom wallpaper look crisp.",
             reactions = mapOf("alex" to "❤️"),
             createdAt = now
         ),
