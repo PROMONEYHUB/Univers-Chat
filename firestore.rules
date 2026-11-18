@@ -177,9 +177,22 @@ service cloud.firestore {
                        isValidId(userId) &&
                        request.auth.uid == userId &&
                        isValidPrivateUser(incoming()) &&
-                       incoming().userId == existing().userId &&
-                       incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'updatedAt']);
+                       (
+                         (
+                           'userId' in existing() &&
+                           'email' in existing() &&
+                           'createdAt' in existing() &&
+                           incoming().userId == existing().userId &&
+                           incoming().createdAt == existing().createdAt &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'updatedAt'])
+                         ) ||
+                         (
+                           (!('userId' in existing()) || !('email' in existing()) || !('createdAt' in existing())) &&
+                           incoming().userId == request.auth.uid &&
+                           incoming().keys().hasAll(['userId', 'email', 'createdAt', 'updatedAt']) &&
+                           incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'createdAt', 'updatedAt'])
+                         )
+                       );
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
@@ -203,10 +216,22 @@ service cloud.firestore {
                        isValidId(userId) &&
                        request.auth.uid == userId &&
                        isValidUserProfile(incoming()) &&
-                       incoming().userId == existing().userId &&
-                       incoming().createdAt == existing().createdAt &&
                        (
-                         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'updatedAt'])
+                         (
+                           'userId' in existing() &&
+                           'handle' in existing() &&
+                           'isDiscoverable' in existing() &&
+                           'createdAt' in existing() &&
+                           incoming().userId == existing().userId &&
+                           incoming().createdAt == existing().createdAt &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'updatedAt'])
+                         ) ||
+                         (
+                           (!('userId' in existing()) || !('handle' in existing()) || !('isDiscoverable' in existing()) || !('createdAt' in existing())) &&
+                           incoming().userId == request.auth.uid &&
+                           incoming().keys().hasAll(['userId', 'displayName', 'handle', 'isOnline', 'isDiscoverable', 'createdAt', 'updatedAt']) &&
+                           incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'createdAt', 'updatedAt'])
+                         )
                        );
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;

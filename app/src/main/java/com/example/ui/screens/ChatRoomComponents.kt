@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.audio.formatDurationSec
 import com.example.ui.components.IosSearchField
+import com.example.ui.components.UniversOrbitLoader
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosIndigo
@@ -560,9 +561,9 @@ fun IosMessageComposerBar(
                         ) {
                             if (isSending) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
                                     color = TelegramBlue,
-                                    strokeWidth = 2.4.dp
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             } else {
                                 Icon(

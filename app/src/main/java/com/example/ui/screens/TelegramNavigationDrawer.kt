@@ -49,10 +49,9 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.UserProfile
 import com.example.ui.components.TelegramWallpaperStyle
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.TelegramDarkBar
-import com.example.ui.theme.TelegramSteelBlue
 
 @Composable
 fun TelegramDrawerContent(
@@ -71,7 +70,7 @@ fun TelegramDrawerContent(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val headerBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -83,11 +82,11 @@ fun TelegramDrawerContent(
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
         ) {
-            // Classic Telegram Steel-Blue Profile Header
+            // Univers Cosmic Azure Animated Profile Header
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(headerBg)
+                    .background(cosmicHeaderBrush)
                     .statusBarsPadding()
                     .padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
@@ -108,8 +107,9 @@ fun TelegramDrawerContent(
                             UserAvatar(
                                 name = currentUserProfile?.displayName ?: "You",
                                 photoUrl = currentUserProfile?.photoUrl,
-                                size = 62.dp,
-                                showPresence = false
+                                size = 64.dp,
+                                showPresence = false,
+                                showStoryRing = true
                             )
                         }
 
@@ -261,7 +261,7 @@ fun TelegramDrawerContent(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Univers Chat · Telegram-style Cloud Messenger",
+                text = "Univers Chat · Private Cloud Messenger",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)

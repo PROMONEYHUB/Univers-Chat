@@ -1,6 +1,13 @@
 package com.example.ui.components
 
 import android.content.Context
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +45,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.ui.theme.AuroraCyan
+import com.example.ui.theme.AuroraViolet
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramBlue
 import com.example.ui.theme.TelegramBlueBright
@@ -54,37 +63,45 @@ enum class TelegramWallpaperStyle(
     val darkTop: Color,
     val darkBottom: Color
 ) {
+    COSMIC_AURORA(
+        label = "Univers Midnight",
+        lightTop = Color(0xFFF0EFFF),
+        lightMid = Color(0xFFE6E4FF),
+        lightBottom = Color(0xFFDDD9FE),
+        darkTop = Color(0xFF0A0B14),
+        darkBottom = Color(0xFF14152B)
+    ),
     CLASSIC_BOTANICAL(
-        label = "Telegram Classic",
+        label = "Botanical Mist",
         lightTop = Color(0xFFD5E4C3),
         lightMid = Color(0xFFBBD7A8),
         lightBottom = Color(0xFFA2C99A),
-        darkTop = Color(0xFF0E1621),
-        darkBottom = Color(0xFF132030)
+        darkTop = Color(0xFF0B1520),
+        darkBottom = Color(0xFF112233)
     ),
     OCEAN_SKY(
         label = "Azure Sky",
         lightTop = Color(0xFFD3E9FB),
         lightMid = Color(0xFFB6DAF8),
         lightBottom = Color(0xFFA0CEF5),
-        darkTop = Color(0xFF0D1926),
-        darkBottom = Color(0xFF14283D)
+        darkTop = Color(0xFF081626),
+        darkBottom = Color(0xFF112842)
     ),
     LAVENDER_DUSK(
-        label = "Lavender Dusk",
-        lightTop = Color(0xFFE7DDF8),
-        lightMid = Color(0xFFD7C8F4),
-        lightBottom = Color(0xFFC8B4EE),
-        darkTop = Color(0xFF141526),
-        darkBottom = Color(0xFF1E1E38)
+        label = "Nebula Dusk",
+        lightTop = Color(0xFFEAE2FC),
+        lightMid = Color(0xFFDACCF7),
+        lightBottom = Color(0xFFCCB8F2),
+        darkTop = Color(0xFF101124),
+        darkBottom = Color(0xFF1C1A3A)
     ),
     SAND_MINIMAL(
         label = "Warm Sand",
-        lightTop = Color(0xFFF3EBDD),
-        lightMid = Color(0xFFE8DCC7),
-        lightBottom = Color(0xFFDECDB2),
-        darkTop = Color(0xFF15181C),
-        darkBottom = Color(0xFF1B2026)
+        lightTop = Color(0xFFF5EEE2),
+        lightMid = Color(0xFFEBE0CC),
+        lightBottom = Color(0xFFE1D2B8),
+        darkTop = Color(0xFF12161C),
+        darkBottom = Color(0xFF192029)
     );
 
     fun next(): TelegramWallpaperStyle {
@@ -110,10 +127,10 @@ class TelegramPreferencesState(context: Context) {
     var wallpaperStyle by mutableStateOf(
         runCatching {
             TelegramWallpaperStyle.valueOf(
-                prefs.getString(KEY_WALLPAPER, TelegramWallpaperStyle.CLASSIC_BOTANICAL.name)
-                    ?: TelegramWallpaperStyle.CLASSIC_BOTANICAL.name
+                prefs.getString(KEY_WALLPAPER, TelegramWallpaperStyle.COSMIC_AURORA.name)
+                    ?: TelegramWallpaperStyle.COSMIC_AURORA.name
             )
-        }.getOrDefault(TelegramWallpaperStyle.CLASSIC_BOTANICAL)
+        }.getOrDefault(TelegramWallpaperStyle.COSMIC_AURORA)
     )
         private set
 
@@ -149,10 +166,10 @@ class TelegramPreferencesState(context: Context) {
     }
 }
 
-val LocalTelegramWallpaper = compositionLocalOf { TelegramWallpaperStyle.CLASSIC_BOTANICAL }
+val LocalTelegramWallpaper = compositionLocalOf { TelegramWallpaperStyle.COSMIC_AURORA }
 
 /**
- * Iconic Telegram gradient chat wallpaper with repeating geometric & messaging doodles.
+ * Living Cosmic Aurora & geometric constellation chat wallpaper with gentle breathing luminescence.
  */
 @Composable
 fun TelegramChatWallpaper(
@@ -166,9 +183,9 @@ fun TelegramChatWallpaper(
         Brush.verticalGradient(colors = listOf(style.lightTop, style.lightMid, style.lightBottom))
     }
     val doodleColor = if (isDark) {
-        Color(0xFF5288C1).copy(alpha = 0.08f)
+        Color(0xFF8B8DFF).copy(alpha = 0.085f)
     } else {
-        Color(0xFF2B4A2F).copy(alpha = 0.07f)
+        Color(0xFF4338CA).copy(alpha = 0.070f)
     }
 
     Box(
@@ -178,9 +195,42 @@ fun TelegramChatWallpaper(
             .background(gradientBrush)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val orb1Center = Offset(
+                x = size.width * 0.22f,
+                y = size.height * 0.22f
+            )
+            val orb2Center = Offset(
+                x = size.width * 0.80f,
+                y = size.height * 0.74f
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        AuroraCyan.copy(alpha = if (isDark) 0.14f else 0.16f),
+                        Color.Transparent
+                    ),
+                    center = orb1Center,
+                    radius = size.minDimension * 0.62f
+                ),
+                radius = size.minDimension * 0.62f,
+                center = orb1Center
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        AuroraViolet.copy(alpha = if (isDark) 0.12f else 0.10f),
+                        Color.Transparent
+                    ),
+                    center = orb2Center,
+                    radius = size.minDimension * 0.58f
+                ),
+                radius = size.minDimension * 0.58f,
+                center = orb2Center
+            )
+
             val stepX = 112.dp.toPx()
             val stepY = 112.dp.toPx()
-            val stroke = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             var row = 0
             var y = 28.dp.toPx()
             while (y < size.height + stepY) {
@@ -190,7 +240,7 @@ fun TelegramChatWallpaper(
                 while (x < size.width + stepX) {
                     val center = Offset(x, y)
                     when ((row * 3 + col) % 6) {
-                        0 -> drawPaperPlaneDoodle(center, 15.dp.toPx(), doodleColor, stroke)
+                        0 -> drawOrbitPlanetDoodle(center, 14.dp.toPx(), doodleColor, stroke)
                         1 -> drawStarDoodle(center, 12.dp.toPx(), doodleColor, stroke)
                         2 -> drawBubbleDoodle(center, 14.dp.toPx(), doodleColor, stroke)
                         3 -> drawMoonDoodle(center, 11.dp.toPx(), doodleColor, stroke)
@@ -210,22 +260,14 @@ fun TelegramChatWallpaper(
 @Composable
 private fun LocalWallpaperResolved(): TelegramWallpaperStyle = LocalTelegramWallpaper.current
 
-private fun DrawScope.drawPaperPlaneDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    rotate(-18f, pivot = center) {
-        val path = Path().apply {
-            moveTo(center.x + r, center.y)
-            lineTo(center.x - r * 0.85f, center.y - r * 0.72f)
-            lineTo(center.x - r * 0.42f, center.y)
-            lineTo(center.x - r * 0.85f, center.y + r * 0.72f)
-            close()
-        }
-        drawPath(path, color = color, style = stroke)
-        drawLine(
+private fun DrawScope.drawOrbitPlanetDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
+    drawCircle(color = color, radius = r * 0.55f, center = center, style = stroke)
+    rotate(-24f, pivot = center) {
+        drawOval(
             color = color,
-            start = Offset(center.x - r * 0.42f, center.y),
-            end = Offset(center.x + r * 0.55f, center.y),
-            strokeWidth = stroke.width,
-            cap = StrokeCap.Round
+            topLeft = Offset(center.x - r * 1.15f, center.y - r * 0.32f),
+            size = androidx.compose.ui.geometry.Size(r * 2.3f, r * 0.64f),
+            style = stroke
         )
     }
 }

@@ -2,11 +2,19 @@ package com.example.ui.auth
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -89,7 +97,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import com.example.R
+import com.example.ui.components.LottieAnimationView
 import com.example.ui.components.TelegramLogoMark
+import com.example.ui.components.UniversOrbitLoader
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleGreen
@@ -97,6 +108,7 @@ import com.example.ui.theme.GoogleRed
 import com.example.ui.theme.GoogleYellow
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramBlueBright
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramSteelBlue
 import com.google.firebase.auth.PhoneAuthProvider
@@ -215,7 +227,7 @@ fun AuthScreen(
                     }
                 }.onFailure { err ->
                     errorMessage = err.localizedMessage
-                        ?: "Unable to request Telegram OTP. Try switching to SMS OTP."
+                        ?: "Unable to request Instant Bot OTP. Try switching to SMS OTP."
                 }
             }
             return
@@ -276,7 +288,7 @@ fun AuthScreen(
             val sessionId = telegramSessionId
             if (sessionId.isNullOrBlank()) {
                 isPhoneLoading = false
-                errorMessage = "Telegram OTP session expired. Please request a new code."
+                errorMessage = "Verification session expired. Please request a new code."
                 return
             }
             coroutineScope.launch {
@@ -293,7 +305,7 @@ fun AuthScreen(
                     onAuthSuccess()
                 }.onFailure { err ->
                     errorMessage = err.localizedMessage
-                        ?: "Invalid or expired Telegram OTP. Please check Telegram and try again."
+                        ?: "Invalid or expired verification code. Please check your bot message and try again."
                 }
             }
             return
@@ -356,11 +368,7 @@ fun AuthScreen(
     val formattedCandidate = formatE164PhoneNumber(selectedCountry.dialCode, phoneInput)
     val canSendCode = !isBusy && isValidE164PhoneNumber(formattedCandidate)
     val canVerifyOtp = !isBusy && otpCode.length == 6
-    val headerBrush = if (isDark) {
-        Brush.verticalGradient(listOf(TelegramDarkBar, MaterialTheme.colorScheme.background))
-    } else {
-        Brush.verticalGradient(listOf(TelegramSteelBlue, TelegramBlue))
-    }
+    val headerBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     Column(
         modifier = modifier
@@ -370,7 +378,7 @@ fun AuthScreen(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Classic Telegram Steel-Blue Header Banner
+        // Clean Cosmic Header Banner
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -385,8 +393,15 @@ fun AuthScreen(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.16f),
-                    modifier = Modifier.size(82.dp)
+                    color = Color.White.copy(alpha = 0.14f),
+                    modifier = Modifier
+                        .size(84.dp)
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.24f),
+                            shape = CircleShape
+                        )
+                        .testTag("auth_app_logo")
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         TelegramLogoMark(size = 66.dp)
@@ -405,7 +420,7 @@ fun AuthScreen(
                     text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
                         stringResource(R.string.auth_subtitle)
                     } else if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                        "Verify $submittedPhoneE164 with your 6-digit Telegram Bot code"
+                        "Verify $submittedPhoneE164 with your 6-digit Instant Bot code"
                     } else {
                         "We sent a 6-digit SMS code to $submittedPhoneE164"
                     },
@@ -451,7 +466,16 @@ fun AuthScreen(
             ) {
                 AnimatedContent(
                     targetState = authStep,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        val forward = targetState == PhoneAuthStep.VERIFY_OTP
+                        (slideInHorizontally(
+                            animationSpec = tween(260),
+                            initialOffsetX = { if (forward) it / 4 else -it / 4 }
+                        ) + fadeIn(tween(240))) togetherWith (slideOutHorizontally(
+                            animationSpec = tween(220),
+                            targetOffsetX = { if (forward) -it / 5 else it / 5 }
+                        ) + fadeOut(tween(180)))
+                    },
                     label = "phone_otp_step"
                 ) { step ->
                     if (step == PhoneAuthStep.ENTER_PHONE) {
@@ -605,7 +629,7 @@ fun AuthScreen(
 
                             Text(
                                 text = if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                    "Receive your free 6-digit verification code instantly inside Telegram."
+                                    "Receive your free 6-digit verification code instantly via our Verification Bot."
                                 } else {
                                     "Please select your country code and enter your phone number."
                                 },
@@ -704,7 +728,7 @@ fun AuthScreen(
                                                         telegramBotDeepLink
                                                     )
                                                     if (!opened) {
-                                                        errorMessage = "Could not open Telegram. Install Telegram or tap Use SMS OTP instead."
+                                                        errorMessage = "Could not open the verification bot app. Tap Use SMS OTP instead."
                                                     }
                                                 },
                                                 enabled = !isBusy,
@@ -864,9 +888,9 @@ fun AuthScreen(
             ) {
                 if (isPhoneLoading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                         color = Color.White,
-                        strokeWidth = 2.5.dp
+                        strokeWidth = 2.2.dp
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
@@ -940,7 +964,7 @@ fun AuthScreen(
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
                         color = TelegramBlue,
-                        strokeWidth = 2.4.dp
+                        strokeWidth = 2.2.dp
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(

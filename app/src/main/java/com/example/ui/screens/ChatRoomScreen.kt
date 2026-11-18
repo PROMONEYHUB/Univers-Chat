@@ -96,10 +96,12 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.ImageUtils
 import com.example.ui.components.TelegramChatWallpaper
+import com.example.ui.components.UniversChatRoomSkeletonLoading
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatDayHeader
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.isSameCalendarDay
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramBlue
@@ -135,7 +137,7 @@ fun ChatRoomScreen(
     val haptics = rememberIosHaptics()
     val scope = rememberCoroutineScope()
     val isDark = LocalIsTelegramDark.current
-    val topBarColor = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
@@ -380,8 +382,9 @@ fun ChatRoomScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                modifier = Modifier.background(cosmicHeaderBrush),
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = topBarColor,
+                    containerColor = Color.Transparent,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White
@@ -641,9 +644,7 @@ fun ChatRoomScreen(
                 ) {
                     when (val state = messagesState) {
                         is UiState.Loading -> {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Color.White)
-                            }
+                            UniversChatRoomSkeletonLoading()
                         }
 
                         is UiState.Error -> {

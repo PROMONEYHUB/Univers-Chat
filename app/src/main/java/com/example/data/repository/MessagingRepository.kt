@@ -72,14 +72,28 @@ class MessagingRepository(
 
         try {
             val privateSnap = privateRef.get().await()
-            if (!privateSnap.exists()) {
-                val payload = mapOf(
+            val hasCanonicalPrivateSchema = privateSnap.exists() &&
+                privateSnap.getString("userId") == uid &&
+                (privateSnap.getString("email")?.length ?: 0) >= 3 &&
+                privateSnap.getTimestamp("createdAt") != null &&
+                !privateSnap.contains("uid") &&
+                !privateSnap.contains("authProvider")
+
+            if (!hasCanonicalPrivateSchema) {
+                val existingCreatedAt = privateSnap.getTimestamp("createdAt")
+                val existingReadReceipts = privateSnap.getBoolean("readReceiptsEnabled") ?: true
+                val existingNotifications = privateSnap.getBoolean("notificationsEnabled") ?: true
+                val existingBlocked = (privateSnap.get("blockedUserIds") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.take(100)
+                    ?: emptyList()
+                val payload = mapOf<String, Any>(
                     "userId" to uid,
                     "email" to email.take(320),
-                    "readReceiptsEnabled" to true,
-                    "notificationsEnabled" to true,
-                    "blockedUserIds" to emptyList<String>(),
-                    "createdAt" to FieldValue.serverTimestamp(),
+                    "readReceiptsEnabled" to existingReadReceipts,
+                    "notificationsEnabled" to existingNotifications,
+                    "blockedUserIds" to existingBlocked,
+                    "createdAt" to (existingCreatedAt ?: FieldValue.serverTimestamp()),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 privateRef.set(payload).await()
@@ -104,30 +118,54 @@ class MessagingRepository(
             val pendingPhoto = AuthProfilePrefill.pendingPhotoUrl?.takeIf { it.isNotBlank() }
             AuthProfilePrefill.pendingDisplayName = null
             AuthProfilePrefill.pendingPhotoUrl = null
-            if (!profileSnap.exists()) {
-                val rawName = pendingName
+
+            val hasCanonicalProfileSchema = profileSnap.exists() &&
+                profileSnap.getString("userId") == uid &&
+                !profileSnap.getString("displayName").isNullOrBlank() &&
+                (profileSnap.getString("handle")?.length ?: 0) >= 2 &&
+                profileSnap.getBoolean("isDiscoverable") != null &&
+                profileSnap.getTimestamp("createdAt") != null &&
+                !profileSnap.contains("uid") &&
+                !profileSnap.contains("phoneNumber") &&
+                !profileSnap.contains("lastSeen")
+
+            if (!hasCanonicalProfileSchema) {
+                val existingName = profileSnap.getString("displayName")?.trim()?.takeIf { it.isNotBlank() }
+                val rawName = existingName
+                    ?: pendingName
                     ?: firebaseUser.displayName?.trim()?.takeIf { it.isNotBlank() }
                     ?: firebaseUser.phoneNumber?.takeIf { it.isNotBlank() }?.let { "Member ${it.takeLast(4)}" }
                     ?: email.substringBefore("@").ifBlank { "Univers Member" }
                 val displayName = rawName.take(60)
-                val sanitizedHandle = rawName.lowercase()
+                val existingHandle = profileSnap.getString("handle")?.trim()?.lowercase()
+                    ?.replace(Regex("[^a-z0-9_]"), "")
+                    ?.takeIf { it.length in 2..32 }
+                val sanitizedHandle = existingHandle ?: rawName.lowercase()
                     .replace(Regex("[^a-z0-9_]"), "")
                     .ifBlank { "user_${uid.take(6)}" }
                     .take(28)
                     .let { if (it.length < 2) "u_${uid.take(6)}" else it }
-                val photoUrl = (pendingPhoto ?: firebaseUser.photoUrl?.toString().orEmpty()).take(500)
+                val existingPhoto = profileSnap.getString("photoUrl").orEmpty()
+                val photoUrl = (existingPhoto.ifBlank { pendingPhoto ?: firebaseUser.photoUrl?.toString().orEmpty() })
+                    .take(MAX_PROFILE_PHOTO_LENGTH)
+                val existingBio = profileSnap.getString("bio")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Hey there! I'm on Univers Chat."
+                val existingVibe = profileSnap.getString("statusVibe")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Available"
+                val existingDiscoverable = profileSnap.getBoolean("isDiscoverable") ?: true
+                val existingCreatedAt = profileSnap.getTimestamp("createdAt")
 
-                val payload = mapOf(
+                val payload = mapOf<String, Any>(
                     "userId" to uid,
                     "displayName" to displayName,
                     "handle" to sanitizedHandle,
-                    "bio" to "Hey there! I'm on Univers Chat.",
+                    "bio" to existingBio.take(160),
                     "photoUrl" to photoUrl,
-                    "statusVibe" to "Available",
+                    "statusVibe" to existingVibe.take(60),
                     "isOnline" to true,
-                    "isDiscoverable" to true,
+                    "isDiscoverable" to existingDiscoverable,
                     "lastSeenAt" to FieldValue.serverTimestamp(),
-                    "createdAt" to FieldValue.serverTimestamp(),
+                    "createdAt" to (existingCreatedAt ?: FieldValue.serverTimestamp()),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 profileRef.set(payload).await()
@@ -307,6 +345,15 @@ class MessagingRepository(
         val uid = requireUserId()
         val docRef = db.collection(USER_PROFILES_COLLECTION).document(uid)
         try {
+            val snap = docRef.get().await()
+            val isReadyForPresenceUpdate = snap.exists() &&
+                snap.getString("userId") == uid &&
+                (snap.getString("handle")?.length ?: 0) >= 2 &&
+                snap.getBoolean("isDiscoverable") != null &&
+                snap.getTimestamp("createdAt") != null
+            if (!isReadyForPresenceUpdate) {
+                return@runCatching
+            }
             docRef.update(
                 mapOf(
                     "isOnline" to isOnline,

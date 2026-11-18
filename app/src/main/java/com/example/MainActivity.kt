@@ -11,9 +11,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,18 +36,24 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
@@ -110,6 +119,7 @@ import com.example.ui.components.LocalTelegramWallpaper
 import com.example.ui.components.TelegramChatWallpaper
 import com.example.ui.components.TelegramLogoMark
 import com.example.ui.components.TelegramPreferencesState
+import com.example.ui.components.UniversAnimatedSplashOverlay
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.screens.CallHostOverlay
 import com.example.ui.screens.ChatRoomScreen
@@ -187,21 +197,29 @@ fun PulseChatApp(
     val auth = Firebase.auth
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val user = currentUser
+    var showLaunchSplash by rememberSaveable { mutableStateOf(true) }
 
-    if (user == null) {
-        LaunchedEffect(Unit) {
-            MessageNotificationCoordinator.stopObserving()
-            RealtimeMessagingService.syncServiceState(context, shouldRun = false)
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (user == null) {
+            LaunchedEffect(Unit) {
+                MessageNotificationCoordinator.stopObserving()
+                RealtimeMessagingService.syncServiceState(context, shouldRun = false)
+            }
+            AuthScreen(onAuthSuccess = {})
+        } else {
+            key(user.uid) {
+                AuthenticatedShell(
+                    currentUserId = user.uid,
+                    themePrefs = resolvedPrefs,
+                    isDark = isDark
+                )
+            }
         }
-        AuthScreen(onAuthSuccess = {})
-    } else {
-        key(user.uid) {
-            AuthenticatedShell(
-                currentUserId = user.uid,
-                themePrefs = resolvedPrefs,
-                isDark = isDark
-            )
-        }
+
+        UniversAnimatedSplashOverlay(
+            visible = showLaunchSplash,
+            onFinished = { showLaunchSplash = false }
+        )
     }
 }
 
@@ -414,6 +432,12 @@ private fun AuthenticatedShell(
     }
 
     val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
+    val connectedUserIds = remember(allConversations, currentUserId, blockedUserIds) {
+        allConversations
+            .flatMap { it.participantIds }
+            .filter { it != currentUserId && it !in blockedUserIds }
+            .toSet()
+    }
     val totalUnread = remember(allConversations, currentUserId) {
         allConversations.sumOf { it.unreadCountFor(currentUserId) }
     }
@@ -629,7 +653,8 @@ private fun AuthenticatedShell(
                                 )
                             },
                             onViewProfile = { person -> expandedViewingUserId = person.userId },
-                            blockedUserIds = blockedUserIds
+                            blockedUserIds = blockedUserIds,
+                            connectedUserIds = connectedUserIds
                         )
                     } else {
                         ProfileScreen(
@@ -693,7 +718,16 @@ private fun AuthenticatedShell(
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     containerColor = MaterialTheme.colorScheme.background,
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    bottomBar = {
+                        if (showTopLevelNav && !isMedium) {
+                            UniversBottomNavigationBar(
+                                selectedRoute = currentRoute,
+                                totalUnread = totalUnread,
+                                onSelectRoute = navigateTopLevel
+                            )
+                        }
+                    }
                 ) { innerPadding ->
                     Row(
                         modifier = Modifier
@@ -714,8 +748,21 @@ private fun AuthenticatedShell(
                         NavHost(
                             navController = navController,
                             startDestination = Routes.CHATS,
-                            enterTransition = { fadeIn(tween(180)) },
-                            exitTransition = { fadeOut(tween(150)) },
+                            enterTransition = {
+                                fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                    scaleIn(initialScale = 0.96f, animationSpec = tween(240, easing = FastOutSlowInEasing))
+                            },
+                            exitTransition = {
+                                fadeOut(tween(200, easing = FastOutSlowInEasing)) +
+                                    scaleOut(targetScale = 0.96f, animationSpec = tween(200, easing = FastOutSlowInEasing))
+                            },
+                            popEnterTransition = {
+                                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                                    scaleIn(initialScale = 0.95f, animationSpec = tween(240, easing = FastOutSlowInEasing))
+                            },
+                            popExitTransition = {
+                                fadeOut(tween(180, easing = FastOutSlowInEasing))
+                            },
                             modifier = Modifier.weight(1f).fillMaxHeight()
                         ) {
                             composable(Routes.CHATS) {
@@ -791,7 +838,8 @@ private fun AuthenticatedShell(
                                         navController.navigate(Routes.userProfile(person.userId))
                                     },
                                     blockedUserIds = blockedUserIds,
-                                    showBackButton = !isMedium,
+                                    connectedUserIds = connectedUserIds,
+                                    showBackButton = false,
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -816,7 +864,7 @@ private fun AuthenticatedShell(
                                     blockedUserIds = blockedUserIds,
                                     allPeople = allPeople,
                                     onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) },
-                                    showBackButton = !isMedium,
+                                    showBackButton = false,
                                     onBack = { navController.popBackStack() },
                                     isNightMode = isDark,
                                     onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
@@ -893,10 +941,22 @@ private fun AuthenticatedShell(
                                 route = Routes.CHAT_ROOM,
                                 arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
                                 enterTransition = {
-                                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(240)) + fadeIn(tween(200))
+                                    slideIntoContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.Start,
+                                        tween(290, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(tween(220))
+                                },
+                                exitTransition = {
+                                    scaleOut(targetScale = 0.95f, animationSpec = tween(220)) + fadeOut(tween(180))
+                                },
+                                popEnterTransition = {
+                                    scaleIn(initialScale = 0.95f, animationSpec = tween(240)) + fadeIn(tween(200))
                                 },
                                 popExitTransition = {
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(220)) + fadeOut(tween(180))
+                                    slideOutOfContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.End,
+                                        tween(260, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(200))
                                 }
                             ) { entry ->
                                 val conversationId = entry.arguments?.getString("conversationId").orEmpty()
@@ -1057,7 +1117,7 @@ private fun EmptyExpandedChatPane() {
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isDark) Color(0xCC182533) else Color(0x701B2A3A)
+                color = if (isDark) Color(0xCC121426) else Color(0x881A1C33)
             ) {
                 Text(
                     text = "Select a chat to start messaging",
@@ -1067,6 +1127,95 @@ private fun EmptyExpandedChatPane() {
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun UniversBottomNavigationBar(
+    selectedRoute: String?,
+    totalUnread: Long,
+    onSelectRoute: (String) -> Unit
+) {
+    val haptics = rememberIosHaptics()
+    val itemColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Column {
+        HorizontalDivider(
+            thickness = 0.6.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+        NavigationBar(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp
+        ) {
+            NavigationBarItem(
+                selected = selectedRoute == Routes.CHATS,
+                onClick = {
+                    if (selectedRoute != Routes.CHATS) haptics.selectionTick()
+                    onSelectRoute(Routes.CHATS)
+                },
+                colors = itemColors,
+                icon = {
+                    BadgedBox(
+                        badge = {
+                            if (totalUnread > 0L) {
+                                Badge(
+                                    containerColor = TelegramBlue,
+                                    contentColor = Color.White
+                                ) {
+                                    Text(if (totalUnread > 99L) "99+" else totalUnread.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (selectedRoute == Routes.CHATS) Icons.AutoMirrored.Rounded.Chat else Icons.AutoMirrored.Outlined.Chat,
+                            contentDescription = "Chats"
+                        )
+                    }
+                },
+                label = { Text("Chats", fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.testTag("bottom_nav_chats")
+            )
+            NavigationBarItem(
+                selected = selectedRoute == Routes.PEOPLE,
+                onClick = {
+                    if (selectedRoute != Routes.PEOPLE) haptics.selectionTick()
+                    onSelectRoute(Routes.PEOPLE)
+                },
+                colors = itemColors,
+                icon = {
+                    Icon(
+                        imageVector = if (selectedRoute == Routes.PEOPLE) Icons.Rounded.Groups else Icons.Outlined.Groups,
+                        contentDescription = "Contacts"
+                    )
+                },
+                label = { Text("Contacts", fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.testTag("bottom_nav_people")
+            )
+            NavigationBarItem(
+                selected = selectedRoute == Routes.PROFILE,
+                onClick = {
+                    if (selectedRoute != Routes.PROFILE) haptics.selectionTick()
+                    onSelectRoute(Routes.PROFILE)
+                },
+                colors = itemColors,
+                icon = {
+                    Icon(
+                        imageVector = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Settings else Icons.Outlined.Settings,
+                        contentDescription = "Settings"
+                    )
+                },
+                label = { Text("Settings", fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.testTag("bottom_nav_profile")
+            )
         }
     }
 }

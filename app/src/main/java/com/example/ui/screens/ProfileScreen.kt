@@ -93,10 +93,13 @@ import com.example.data.model.UserProfile
 import com.example.ui.components.ImageUtils
 import com.example.ui.components.LocalTelegramWallpaper
 import com.example.ui.components.TelegramWallpaperStyle
+import com.example.ui.components.UniversOrbitLoader
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramBlueBright
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramGreen
 import com.example.ui.theme.TelegramSteelBlue
@@ -170,7 +173,7 @@ fun ProfileScreen(
     val haptics = rememberIosHaptics()
     val clipboardManager = LocalClipboardManager.current
     val isDark = LocalIsTelegramDark.current
-    val headerBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
     val sectionSpacerBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
 
     var showBlockedDialog by remember { mutableStateOf(false) }
@@ -219,8 +222,9 @@ fun ProfileScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                modifier = Modifier.background(cosmicHeaderBrush),
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerBg,
+                    containerColor = Color.Transparent,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 ),
@@ -255,11 +259,11 @@ fun ProfileScreen(
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Telegram Steel-Blue Profile Hero Band with Uploadable Avatar & Live Bio Preview
+            // Univers Cosmic Profile Hero Band with Uploadable Avatar & Live Bio Preview
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(headerBg)
+                    .background(cosmicHeaderBrush)
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -287,7 +291,7 @@ fun ProfileScreen(
                             size = 96.dp,
                             showPresence = true,
                             isOnline = isOnline,
-                            showStoryRing = false
+                            showStoryRing = isOnline
                         )
                         if (photoBusy) {
                             Box(
@@ -298,8 +302,8 @@ fun ProfileScreen(
                             ) {
                                 CircularProgressIndicator(
                                     color = Color.White,
-                                    strokeWidth = 3.dp,
-                                    modifier = Modifier.size(30.dp)
+                                    strokeWidth = 2.5.dp,
+                                    modifier = Modifier.size(28.dp)
                                 )
                             }
                         }
@@ -321,7 +325,7 @@ fun ProfileScreen(
                             shadowElevation = 3.dp,
                             modifier = Modifier
                                 .size(34.dp)
-                                .border(2.dp, headerBg, CircleShape)
+                                .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -722,7 +726,7 @@ fun ProfileScreen(
                 TelegramSwitchRow(
                     icon = Icons.Outlined.DarkMode,
                     title = "Night Mode",
-                    subtitle = if (isNightMode) "Telegram Night theme active" else "Telegram Day theme active",
+                    subtitle = if (isNightMode) "Univers Midnight theme active" else "Univers Daylight theme active",
                     checked = isNightMode,
                     onCheckedChange = { onToggleNightMode() },
                     modifier = Modifier.testTag("settings_night_mode_switch")

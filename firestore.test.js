@@ -793,3 +793,112 @@ test("Participants can set and clear own typingBy timestamp without spoofing oth
     })
   );
 });
+
+// --- 9. Self-Healing Migration for Legacy Backend-Created User Docs ---
+
+test("Owner can migrate legacy Telegram-backend /users/{uid} and /user_profiles/{uid} into canonical schema; others fail and immutability locks after migration", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await adminDb.collection("users").doc(ALICE_UID).set({
+      uid: ALICE_UID,
+      phoneNumber: "+919706150227",
+      displayName: "Member 0227",
+      photoUrl: "",
+      authProvider: "telegram_bot_otp",
+      createdAt: ts(),
+      updatedAt: ts(),
+    });
+    await adminDb.collection("user_profiles").doc(ALICE_UID).set({
+      uid: ALICE_UID,
+      displayName: "Member 0227",
+      photoUrl: "",
+      bio: "",
+      phoneNumber: "+919706150227",
+      isOnline: true,
+      lastSeen: ts(),
+      updatedAt: ts(),
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  // Bob CANNOT touch Alice's legacy documents
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      email: "hijack@example.com",
+      readReceiptsEnabled: true,
+      notificationsEnabled: true,
+      blockedUserIds: [],
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+  await assertFails(
+    bobDb.collection("user_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      displayName: "Hijacked",
+      handle: "hijacked",
+      isOnline: true,
+      isDiscoverable: true,
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice CAN replace her legacy /users/{uid} with strict canonical PrivateUser schema
+  const migratedCreatedAt = new Date(Date.now() - 5000);
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      email: "+919706150227",
+      readReceiptsEnabled: true,
+      notificationsEnabled: true,
+      blockedUserIds: [],
+      createdAt: migratedCreatedAt,
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice CAN replace her legacy /user_profiles/{uid} with strict canonical UserProfile schema (stripping phoneNumber PII)
+  await assertSucceeds(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      displayName: "Member 0227",
+      handle: "member0227",
+      bio: "Hey there! I'm on Univers Chat.",
+      photoUrl: "",
+      statusVibe: "Available",
+      isOnline: true,
+      isDiscoverable: true,
+      lastSeenAt: ts(),
+      createdAt: migratedCreatedAt,
+      updatedAt: ts(),
+    })
+  );
+
+  // Once migrated, normal online presence update succeeds
+  await assertSucceeds(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      isOnline: false,
+      lastSeenAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Once migrated, createdAt is strictly immutable again
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).update({
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+});
+

@@ -1,12 +1,19 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -29,13 +37,11 @@ import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,8 +61,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -69,9 +79,15 @@ import com.example.data.model.CallTarget
 import com.example.data.model.Conversation
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
+import com.example.ui.components.UniversChatsSkeletonLoading
+import com.example.ui.components.UserAvatar
+import com.example.ui.components.bouncyPressScale
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.PulseBrushes
 import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramBlueBright
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramSteelBlue
 import com.example.ui.viewmodel.ChatFilter
@@ -108,7 +124,7 @@ fun ChatsScreen(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val topBarColor = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var openDialogInGroupMode by remember { mutableStateOf(false) }
@@ -136,13 +152,15 @@ fun ChatsScreen(
     }
 
     val peopleList = (peopleState as? UiState.Success)?.data.orEmpty()
-    val otherPeople = remember(peopleList, currentUserId, blockedUserIds) {
-        peopleList.filter { it.userId != currentUserId && it.userId !in blockedUserIds }
-            .sortedByDescending { it.isOnline }
-    }
     val peopleMap = remember(peopleList) { peopleList.associateBy { it.userId } }
     val peopleNameMap = remember(peopleList) { peopleList.associate { it.userId to it.displayName } }
     val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
+    val connectedUserIds = remember(allConversations, currentUserId, blockedUserIds) {
+        allConversations
+            .flatMap { it.participantIds }
+            .filter { it != currentUserId && it !in blockedUserIds }
+            .toSet()
+    }
     val unreadConvCount = remember(allConversations, currentUserId) {
         allConversations.count { it.unreadCountFor(currentUserId) > 0L }
     }
@@ -162,10 +180,10 @@ fun ChatsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(modifier = Modifier.fillMaxWidth().background(topBarColor)) {
+            Column(modifier = Modifier.fillMaxWidth().background(cosmicHeaderBrush)) {
                 TopAppBar(
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = topBarColor,
+                        containerColor = Color.Transparent,
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White,
                         actionIconContentColor = Color.White
@@ -191,11 +209,16 @@ fun ChatsScreen(
                                     haptics.lightTap()
                                     onOpenDrawer()
                                 },
-                                modifier = Modifier.testTag("drawer_menu_button")
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .testTag("drawer_menu_button")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Menu,
-                                    contentDescription = "Open navigation menu"
+                                UserAvatar(
+                                    name = currentUserProfile?.displayName?.ifBlank { "Me" } ?: "Me",
+                                    photoUrl = currentUserProfile?.photoUrl,
+                                    size = 34.dp,
+                                    showPresence = false,
+                                    showStoryRing = false
                                 )
                             }
                         }
@@ -227,7 +250,17 @@ fun ChatsScreen(
                                 )
                             }
                         } else {
-                            Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (conversationsState is UiState.Loading) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                                 Text(
                                     text = if (conversationsState is UiState.Loading) {
                                         "Connecting…"
@@ -235,7 +268,7 @@ fun ChatsScreen(
                                         stringResource(R.string.app_name)
                                     },
                                     style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.ExtraBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -314,13 +347,16 @@ fun ChatsScreen(
                     openDialogInGroupMode = false
                     showNewChatDialog = true
                 },
-                shape = CircleShape,
-                containerColor = TelegramBlue,
+                shape = RoundedCornerShape(18.dp),
+                containerColor = Color.Transparent,
                 contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
                 modifier = Modifier
-                    .navigationBarsPadding()
-                    .size(58.dp)
+                    .bouncyPressScale(0.92f)
+                    .size(56.dp)
+                    .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = TelegramBlue, spotColor = TelegramBlue)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(PulseBrushes.BrandGradient)
                     .testTag("new_chat_fab")
             ) {
                 Icon(
@@ -339,9 +375,7 @@ fun ChatsScreen(
         ) {
             when (conversationsState) {
                 is UiState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = TelegramBlue)
-                    }
+                    UniversChatsSkeletonLoading()
                 }
 
                 is UiState.Error -> {
@@ -387,23 +421,8 @@ fun ChatsScreen(
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 96.dp)
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
                     ) {
-                        if (otherPeople.isNotEmpty() && searchQuery.isBlank() && selectedFilter == ChatFilter.ALL) {
-                            item(key = "telegram_stories_strip") {
-                                AnimatedVisibility(
-                                    visible = true,
-                                    enter = fadeIn() + expandVertically(),
-                                    exit = fadeOut() + shrinkVertically()
-                                ) {
-                                    TelegramStoriesRow(
-                                        people = otherPeople,
-                                        onPersonClick = onStartDirectChat
-                                    )
-                                }
-                            }
-                        }
-
                         if (filtered.isEmpty()) {
                             item(key = "empty_chats_card") {
                                 EmptyChatsView(
@@ -419,7 +438,7 @@ fun ChatsScreen(
                                 )
                             }
                         } else {
-                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { index, conversation ->
+                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { _, conversation ->
                                 val otherId = conversation.otherParticipantId(currentUserId)
                                 val otherProfile = otherId?.let { peopleMap[it] }
                                 val isPendingDelete = conversation.id in pendingDeleteIds
@@ -436,7 +455,7 @@ fun ChatsScreen(
                                         otherProfile = otherProfile,
                                         isSelected = conversation.id == selectedConversationId,
                                         isPendingDelete = isPendingDelete,
-                                        showBottomDivider = index < filtered.lastIndex,
+                                        showBottomDivider = false,
                                         typingText = typingSummary,
                                         onOpen = { onOpenConversation(conversation.id) },
                                         onLongPress = { optionsTargetConversation = conversation },
@@ -453,12 +472,6 @@ fun ChatsScreen(
                                     )
                                 }
                             }
-                            item(key = "chats_footer_divider") {
-                                HorizontalDivider(
-                                    thickness = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant
-                                )
-                            }
                         }
                     }
                 }
@@ -470,6 +483,7 @@ fun ChatsScreen(
         NewConversationDialog(
             people = peopleList.filter { it.userId !in blockedUserIds },
             currentUserId = currentUserId,
+            connectedUserIds = connectedUserIds,
             initialGroupMode = openDialogInGroupMode,
             onDismiss = { showNewChatDialog = false },
             onStartDirect = { person ->

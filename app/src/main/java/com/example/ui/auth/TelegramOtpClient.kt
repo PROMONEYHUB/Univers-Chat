@@ -105,7 +105,7 @@ object TelegramOtpClient {
     ): Result<TelegramOtpRequestResponse> = runCatching {
         if (!isBackendConfigured(baseUrl)) {
             throw TelegramOtpException(
-                message = "Telegram Bot OTP backend is not configured yet. Set TELEGRAM_OTP_BACKEND_URL in the Secrets panel in AI Studio, or switch to SMS OTP.",
+                message = "Instant Bot OTP service is not configured yet. Please switch to SMS OTP.",
                 isRetryable = false
             )
         }
@@ -132,7 +132,7 @@ object TelegramOtpClient {
     ): Result<TelegramOtpVerifyResponse> = runCatching {
         if (!isBackendConfigured(baseUrl)) {
             throw TelegramOtpException(
-                message = "Telegram Bot OTP backend is not configured yet.",
+                message = "Instant Bot OTP service is not configured yet.",
                 isRetryable = false
             )
         }
@@ -238,12 +238,12 @@ object TelegramOtpClient {
                     if (!response.isSuccessful) {
                         val serverError = extractErrorMessage(rawBody)
                         val friendlyMessage = when (response.code) {
-                            400 -> serverError ?: "Please check your phone number and 6-digit Telegram OTP."
-                            401 -> serverError ?: "Incorrect verification code. Check Telegram and try again."
-                            410 -> serverError ?: "This Telegram OTP has expired. Tap Resend to get a new code."
+                            400 -> serverError ?: "Please check your phone number and 6-digit verification code."
+                            401 -> serverError ?: "Incorrect verification code. Please check your code and try again."
+                            410 -> serverError ?: "This verification code has expired. Tap Resend to get a new code."
                             429 -> serverError ?: "Too many attempts. Wait a moment or switch to SMS OTP."
-                            in 500..599 -> serverError ?: "Telegram OTP server is temporarily unavailable. Try SMS OTP."
-                            else -> serverError ?: "Telegram verification failed (HTTP ${response.code})."
+                            in 500..599 -> serverError ?: "Verification server is temporarily unavailable. Try SMS OTP."
+                            else -> serverError ?: "Verification failed (HTTP ${response.code})."
                         }
                         throw TelegramOtpException(
                             message = friendlyMessage,
@@ -257,13 +257,13 @@ object TelegramOtpClient {
                 throw e
             } catch (e: SocketTimeoutException) {
                 throw TelegramOtpException(
-                    message = "Connection timed out reaching the Telegram OTP server. Check your internet or use SMS OTP.",
+                    message = "Connection timed out reaching the verification server. Check your internet or use SMS OTP.",
                     isRetryable = true,
                     cause = e
                 )
             } catch (e: IOException) {
                 throw TelegramOtpException(
-                    message = "Network error reaching the Telegram OTP server. Check your internet or use SMS OTP.",
+                    message = "Network error reaching the verification server. Check your internet or use SMS OTP.",
                     isRetryable = true,
                     cause = e
                 )
@@ -272,11 +272,11 @@ object TelegramOtpClient {
 
     internal fun parseRequestResponse(rawJson: String): TelegramOtpRequestResponse {
         val json = runCatching { JSONObject(rawJson) }.getOrElse { err ->
-            throw TelegramOtpException("Unexpected response from Telegram OTP server.", cause = err)
+            throw TelegramOtpException("Unexpected response from verification server.", cause = err)
         }
         val sessionId = json.optString("sessionId").trim()
         if (sessionId.isEmpty()) {
-            throw TelegramOtpException("Telegram OTP server did not return a verification session.")
+            throw TelegramOtpException("Verification server did not return an active session.")
         }
         val deliveryMode = TelegramOtpDeliveryMode.fromWire(json.optString("deliveryMode"))
         val deepLink = json.optString("botDeepLink").trim()

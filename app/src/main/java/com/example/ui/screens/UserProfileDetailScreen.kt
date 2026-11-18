@@ -77,6 +77,7 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.theme.TelegramBlue
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramSteelBlue
@@ -97,7 +98,7 @@ fun UserProfileDetailScreen(
     val clipboardManager = LocalClipboardManager.current
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val headerBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
+    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
     val sectionSpacerBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     var showFullPhoto by remember { mutableStateOf(false) }
 
@@ -107,8 +108,9 @@ fun UserProfileDetailScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                modifier = Modifier.background(cosmicHeaderBrush),
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerBg,
+                    containerColor = Color.Transparent,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 ),
@@ -162,11 +164,11 @@ fun UserProfileDetailScreen(
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Telegram Steel-Blue Hero Banner
+            // Univers Cosmic Hero Banner
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(headerBg)
+                    .background(cosmicHeaderBrush)
                     .padding(horizontal = 24.dp, vertical = 22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -185,7 +187,7 @@ fun UserProfileDetailScreen(
                         size = 104.dp,
                         showPresence = !isBlocked,
                         isOnline = profile.isOnline,
-                        showStoryRing = false
+                        showStoryRing = !isBlocked && profile.isOnline
                     )
                 }
 

@@ -122,43 +122,64 @@ function createFirebaseUserUpserter(auth, db) {
     const privateRef = db.collection('users').doc(uid);
     const publicRef = db.collection('user_profiles').doc(uid);
 
-    const existingPublic = await publicRef.get();
-    const resolvedName =
-      (existingPublic.exists && existingPublic.data()?.displayName) ||
-      userRecord.displayName ||
+    const [existingPrivate, existingPublic] = await Promise.all([
+      privateRef.get(),
+      publicRef.get(),
+    ]);
+    const privateData = existingPrivate.exists ? existingPrivate.data() || {} : {};
+    const publicData = existingPublic.exists ? existingPublic.data() || {} : {};
+
+    const fallbackMemberName = `Member ${String(phoneNumber).slice(-4)}`;
+    const resolvedName = String(
+      publicData.displayName ||
+      (userRecord.displayName && userRecord.displayName !== phoneNumber ? userRecord.displayName : '') ||
       displayName ||
-      phoneNumber;
-    const resolvedPhoto =
-      (existingPublic.exists && existingPublic.data()?.photoUrl) ||
+      fallbackMemberName
+    ).trim().slice(0, 60) || fallbackMemberName;
+
+    const resolvedPhoto = String(
+      publicData.photoUrl ||
       userRecord.photoURL ||
       photoUrl ||
-      '';
+      ''
+    ).slice(0, 60000);
 
-    await privateRef.set(
-      {
-        uid,
-        phoneNumber,
-        displayName: resolvedName,
-        photoUrl: resolvedPhoto,
-        authProvider: 'telegram_bot_otp',
-        updatedAt: now,
-        ...(isNewUser ? { createdAt: now } : {}),
-      },
-      { merge: true }
-    );
+    const rawHandle = String(publicData.handle || resolvedName)
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 28);
+    const resolvedHandle = rawHandle.length >= 2 ? rawHandle : `u_${uid.slice(0, 6)}`;
 
-    if (!existingPublic.exists) {
-      await publicRef.set({
-        uid,
-        displayName: resolvedName,
-        photoUrl: resolvedPhoto,
-        bio: '',
-        phoneNumber,
-        isOnline: true,
-        lastSeen: now,
-        updatedAt: now,
-      });
-    }
+    const resolvedEmail = String(
+      userRecord.email ||
+      (typeof privateData.email === 'string' && privateData.email.length >= 3 ? privateData.email : '') ||
+      phoneNumber ||
+      `${uid}@universchat.local`
+    ).slice(0, 320);
+
+    await privateRef.set({
+      userId: uid,
+      email: resolvedEmail,
+      readReceiptsEnabled: typeof privateData.readReceiptsEnabled === 'boolean' ? privateData.readReceiptsEnabled : true,
+      notificationsEnabled: typeof privateData.notificationsEnabled === 'boolean' ? privateData.notificationsEnabled : true,
+      blockedUserIds: Array.isArray(privateData.blockedUserIds) ? privateData.blockedUserIds.slice(0, 100) : [],
+      createdAt: privateData.createdAt || now,
+      updatedAt: now,
+    });
+
+    await publicRef.set({
+      userId: uid,
+      displayName: resolvedName,
+      handle: resolvedHandle,
+      bio: String(publicData.bio || "Hey there! I'm on Univers Chat.").slice(0, 160),
+      photoUrl: resolvedPhoto,
+      statusVibe: String(publicData.statusVibe || 'Available').slice(0, 60),
+      isOnline: true,
+      isDiscoverable: typeof publicData.isDiscoverable === 'boolean' ? publicData.isDiscoverable : true,
+      lastSeenAt: now,
+      createdAt: publicData.createdAt || now,
+      updatedAt: now,
+    });
 
     const firebaseCustomToken = await auth.createCustomToken(uid, {
       phone_number: phoneNumber,

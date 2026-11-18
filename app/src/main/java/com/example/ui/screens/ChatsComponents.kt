@@ -1,7 +1,16 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -75,12 +84,16 @@ import com.example.R
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UserProfile
+import com.example.ui.components.LottieAnimationView
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.bouncyPressScale
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.IosRed
 import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.PulseBrushes
 import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramBlueBright
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramGreen
 import com.example.ui.theme.TelegramSteelBlue
@@ -95,67 +108,64 @@ fun TelegramFolderTabsBar(
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
-    val isDark = LocalIsTelegramDark.current
-    val barBg = if (isDark) TelegramDarkBar else TelegramSteelBlue
 
     Surface(
-        color = barBg,
+        color = Color.Transparent,
         modifier = modifier.fillMaxWidth()
     ) {
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(ChatFilter.entries, key = { it.name }) { filter ->
                 val isSelected = filter == selectedFilter
-                val label = if (filter == ChatFilter.DIRECT) "Personal" else filter.label
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                val label = if (filter == ChatFilter.DIRECT) "Direct" else filter.label
+                val pillBg by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else Color.White.copy(alpha = 0.14f),
+                    animationSpec = tween(200),
+                    label = "tab_pill_bg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) TelegramBlue else Color.White.copy(alpha = 0.90f),
+                    animationSpec = tween(180),
+                    label = "tab_text_color"
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
-                        .defaultMinSize(minWidth = 68.dp, minHeight = 44.dp)
-                        .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                        .bouncyPressScale(0.95f)
+                        .defaultMinSize(minHeight = 36.dp)
+                        .clip(CircleShape)
+                        .background(pillBg)
                         .clickable {
                             haptics.selectionTick()
                             onSelectFilter(filter)
                         }
-                        .padding(horizontal = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 7.dp)
                         .testTag("filter_chip_${filter.name.lowercase()}")
                 ) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.72f)
-                        )
-                        if (filter == ChatFilter.UNREAD && unreadConvCount > 0) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.25f)
-                            ) {
-                                Text(
-                                    text = if (unreadConvCount > 99) "99+" else unreadConvCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) TelegramBlue else Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                )
-                            }
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = textColor
+                    )
+                    if (filter == ChatFilter.UNREAD && unreadConvCount > 0) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isSelected) TelegramBlue else Color.White.copy(alpha = 0.28f)
+                        ) {
+                            Text(
+                                text = if (unreadConvCount > 99) "99+" else unreadConvCount.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .width(42.dp)
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                            .background(if (isSelected) Color.White else Color.Transparent)
-                    )
                 }
             }
         }
@@ -183,13 +193,14 @@ fun TelegramStoriesRow(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .width(62.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .bouncyPressScale(0.92f)
+                        .width(64.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable {
                             haptics.lightTap()
                             onPersonClick(person)
                         }
-                        .padding(vertical = 2.dp)
+                        .padding(vertical = 3.dp)
                 ) {
                     UserAvatar(
                         name = person.displayName,
@@ -255,10 +266,16 @@ fun TelegramConversationRow(
     val isPollPreview = conversation.lastMessageType == Message.TYPE_POLL
     val isVoicePreview = conversation.lastMessageType == Message.TYPE_AUDIO
 
+    val cardShape = RoundedCornerShape(20.dp)
     val rowBg = when {
-        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.35f else 0.48f)
-        isPinned -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.25f else 0.30f)
-        else -> MaterialTheme.colorScheme.background
+        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.45f else 0.55f)
+        isPinned -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.55f else 0.52f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val borderColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.65f else 0.8f)
     }
 
     val previewText = when {
@@ -266,10 +283,14 @@ fun TelegramConversationRow(
         else -> conversation.lastMessageText
     }
 
-    Column(
+    Surface(
+        shape = cardShape,
+        color = rowBg,
         modifier = Modifier
             .fillMaxWidth()
-            .background(rowBg)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(cardShape)
+            .border(width = 0.7.dp, color = borderColor, shape = cardShape)
             .combinedClickable(
                 onClick = {
                     haptics.lightTap()
@@ -285,7 +306,7 @@ fun TelegramConversationRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             UserAvatar(
@@ -469,14 +490,6 @@ fun TelegramConversationRow(
                 }
             }
         }
-
-        if (showBottomDivider) {
-            HorizontalDivider(
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier.padding(start = 81.dp)
-            )
-        }
     }
 }
 
@@ -547,6 +560,8 @@ fun SwipeToDeleteConversationItem(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
@@ -614,11 +629,11 @@ fun EmptyChatsView(
             contentDescription = stringResource(R.string.empty_chats_desc),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(172.dp)
-                .clip(RoundedCornerShape(18.dp)),
+                .height(176.dp)
+                .clip(RoundedCornerShape(20.dp)),
             contentScale = ContentScale.Crop
         )
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(22.dp))
         Text(
             text = if (isFiltered) "No matching chats" else stringResource(R.string.empty_chats_title),
             style = MaterialTheme.typography.titleLarge,
@@ -627,13 +642,13 @@ fun EmptyChatsView(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = if (isFiltered) "Try a different search query or switch folder tabs." else stringResource(R.string.empty_chats_subtitle),
+            text = if (isFiltered) "Try a different search query or switch filters." else stringResource(R.string.empty_chats_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         if (!isFiltered) {
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {
@@ -642,24 +657,35 @@ fun EmptyChatsView(
                     },
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = TelegramBlue,
+                        containerColor = Color.Transparent,
                         contentColor = Color.White
-                    )
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier
+                        .bouncyPressScale(0.94f)
+                        .clip(CircleShape)
+                        .background(PulseBrushes.BrandGradient)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("New Message", fontWeight = FontWeight.Bold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("New Message", fontWeight = FontWeight.Bold)
+                    }
                 }
                 OutlinedButton(
                     onClick = {
                         haptics.lightTap()
                         onCreateGroup()
                     },
-                    shape = CircleShape
+                    shape = CircleShape,
+                    modifier = Modifier.bouncyPressScale(0.94f)
                 ) {
                     Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))

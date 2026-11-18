@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -45,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -54,7 +60,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -62,6 +70,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import com.example.audio.VoicePlaybackState
 import com.example.audio.formatDurationSec
 import com.example.data.model.Message
@@ -95,6 +105,7 @@ fun MessageBubble(
     onToggleReaction: (String) -> Unit,
     onVotePoll: (Int) -> Unit,
     onOpenImage: ((Bitmap) -> Unit)? = null,
+    onOpenImageUrl: ((String) -> Unit)? = null,
     voicePlaybackState: VoicePlaybackState = VoicePlaybackState(),
     onToggleVoicePlayback: ((Message) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -136,12 +147,11 @@ fun MessageBubble(
     }
     val tickColor = when {
         !isOwnMessage -> subtleColor
-        isDark -> TelegramDarkBlue
-        else -> TelegramTickGreen
+        isDark -> Color(0xFFBAE6FD)
+        else -> Color.White.copy(alpha = 0.92f)
     }
     val accentBarColor = when {
-        isOwnMessage && isDark -> TelegramDarkBlue
-        isOwnMessage && !isDark -> TelegramTickGreen
+        isOwnMessage -> Color.White.copy(alpha = 0.85f)
         else -> TelegramBlue
     }
 
@@ -150,9 +160,43 @@ fun MessageBubble(
     }
     val myReaction = message.reactions[currentUserId]
 
+    val enterScale = remember(message.id) { Animatable(0.92f) }
+    val enterAlpha = remember(message.id) { Animatable(0f) }
+    val enterOffsetY = remember(message.id) { Animatable(14f) }
+    LaunchedEffect(message.id) {
+        launch {
+            enterAlpha.animateTo(1f, tween(durationMillis = 190, easing = FastOutSlowInEasing))
+        }
+        launch {
+            enterScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+        launch {
+            enterOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                alpha = enterAlpha.value
+                scaleX = enterScale.value
+                scaleY = enterScale.value
+                translationY = enterOffsetY.value
+                transformOrigin = TransformOrigin(if (isOwnMessage) 1f else 0f, 1f)
+            }
             .padding(
                 start = 10.dp,
                 end = 10.dp,
@@ -182,12 +226,23 @@ fun MessageBubble(
             Box(
                 modifier = Modifier
                     .shadow(
-                        elevation = if (isDark) 0.dp else 1.5.dp,
+                        elevation = if (isOwnMessage) 3.dp else if (isDark) 1.dp else 1.5.dp,
                         shape = bubbleShape,
+                        ambientColor = if (isOwnMessage) TelegramBlue else Color.Black,
+                        spotColor = if (isOwnMessage) TelegramBlue else Color.Black,
                         clip = false
                     )
                     .clip(bubbleShape)
                     .background(bubbleBrush)
+                    .border(
+                        width = 0.75.dp,
+                        color = when {
+                            isOwnMessage -> Color.White.copy(alpha = 0.18f)
+                            isDark -> Color.White.copy(alpha = 0.08f)
+                            else -> Color(0xFFE2EAF4)
+                        },
+                        shape = bubbleShape
+                    )
                     .combinedClickable(
                         onClick = {
                             haptics.lightTap()
@@ -311,6 +366,51 @@ fun MessageBubble(
                         }
                     }
 
+                    val remoteImageUrl = remember(message.text, message.type, message.imageBase64) {
+                        if (message.imageBase64.isNullOrBlank()) extractRemoteImageUrl(message.text) else null
+                    }
+                    if (remoteImageUrl != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(204.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Black.copy(alpha = 0.08f))
+                                .combinedClickable(
+                                    onClick = {
+                                        if (onOpenImageUrl != null) onOpenImageUrl(remoteImageUrl)
+                                        else onLongPressOrTapActions()
+                                    },
+                                    onLongClick = onLongPressOrTapActions
+                                )
+                                .testTag("message_remote_image")
+                        ) {
+                            AsyncImage(
+                                model = remoteImageUrl,
+                                contentDescription = "Shared photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.matchParentSize()
+                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.45f),
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(8.dp)
+                                    .size(28.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ZoomIn,
+                                        contentDescription = "Expand photo",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     when {
                         message.type == Message.TYPE_AUDIO -> {
                             VoiceMessageBubbleContent(
@@ -336,7 +436,7 @@ fun MessageBubble(
                                 onVotePoll = onVotePoll
                             )
                         }
-                        message.text.isNotBlank() -> {
+                        message.text.isNotBlank() && remoteImageUrl == null -> {
                             Text(
                                 text = message.text,
                                 style = MaterialTheme.typography.bodyLarge,
@@ -777,3 +877,20 @@ private fun ActionRow(
         )
     }
 }
+
+private fun extractRemoteImageUrl(rawText: String): String? {
+    val trimmed = rawText.trim()
+    if (trimmed.isEmpty() || trimmed.contains(' ') || trimmed.contains('\n')) return null
+    val lower = trimmed.lowercase()
+    if (!lower.startsWith("https://") && !lower.startsWith("http://")) return null
+    val isFirebaseStorage = lower.contains("firebasestorage.googleapis.com") ||
+        lower.contains(".firebasestorage.app")
+    val pathWithoutQuery = lower.substringBefore('?')
+    val hasImageExtension = pathWithoutQuery.endsWith(".jpg") ||
+        pathWithoutQuery.endsWith(".jpeg") ||
+        pathWithoutQuery.endsWith(".png") ||
+        pathWithoutQuery.endsWith(".webp") ||
+        pathWithoutQuery.endsWith(".gif")
+    return if (isFirebaseStorage || hasImageExtension) trimmed else null
+}
+

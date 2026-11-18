@@ -73,6 +73,7 @@ private val GroupTopicPresets = listOf("Friends", "Study", "Weekend", "Gaming", 
 fun NewConversationDialog(
     people: List<UserProfile>,
     currentUserId: String,
+    connectedUserIds: Set<String> = emptySet(),
     initialGroupMode: Boolean = false,
     onDismiss: () -> Unit,
     onStartDirect: (UserProfile) -> Unit,
@@ -85,16 +86,39 @@ fun NewConversationDialog(
     var search by remember { mutableStateOf("") }
     val selectedIds = remember { mutableStateListOf<String>() }
 
+    val trimmedSearch = search.trim()
+    val normalizedSearch = trimmedSearch.removePrefix("@")
+
     val allOtherPeople = remember(people, currentUserId) {
         people.filter { it.userId != currentUserId }
             .sortedByDescending { it.isOnline }
     }
-    val filteredPeople = remember(allOtherPeople, search) {
-        if (search.isBlank()) allOtherPeople
-        else allOtherPeople.filter {
-            it.displayName.contains(search, ignoreCase = true) ||
-                it.handle.contains(search, ignoreCase = true) ||
-                it.statusVibe.contains(search, ignoreCase = true)
+    val connectedPeople = remember(allOtherPeople, connectedUserIds) {
+        allOtherPeople.filter { it.userId in connectedUserIds }
+    }
+    val filteredPeople = remember(allOtherPeople, connectedPeople, normalizedSearch, connectedUserIds) {
+        if (normalizedSearch.length < 2) {
+            if (normalizedSearch.isEmpty()) {
+                connectedPeople
+            } else {
+                connectedPeople.filter {
+                    it.displayName.contains(normalizedSearch, ignoreCase = true) ||
+                        it.handle.contains(normalizedSearch, ignoreCase = true)
+                }
+            }
+        } else {
+            allOtherPeople
+                .filter {
+                    it.handle.contains(normalizedSearch, ignoreCase = true) ||
+                        it.displayName.contains(normalizedSearch, ignoreCase = true)
+                }
+                .sortedWith(
+                    compareByDescending<UserProfile> { it.userId in connectedUserIds }
+                        .thenByDescending { it.handle.equals(normalizedSearch, ignoreCase = true) }
+                        .thenByDescending { it.handle.startsWith(normalizedSearch, ignoreCase = true) }
+                        .thenByDescending { it.isOnline }
+                )
+                .take(12)
         }
     }
     val selectedPeople = remember(allOtherPeople, selectedIds.size, selectedIds.toList()) {
@@ -368,17 +392,16 @@ fun NewConversationDialog(
                     IosSearchField(
                         query = search,
                         onQueryChange = { search = it },
-                        placeholder = "Search people by name or @handle",
+                        placeholder = "Type @username or name to find someone",
                         showCancelWhenActive = false,
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
                     )
 
                     Text(
-                        text = if (isGroupMode) {
-                            if (selectedIds.isEmpty()) "SUGGESTED CONTACTS"
-                            else "${selectedIds.size} SELECTED"
-                        } else {
-                            "CONTACTS"
+                        text = when {
+                            isGroupMode && selectedIds.isNotEmpty() -> "${selectedIds.size} SELECTED"
+                            normalizedSearch.length >= 2 -> "SEARCH RESULTS"
+                            else -> "YOUR CONTACTS"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
@@ -396,10 +419,13 @@ fun NewConversationDialog(
                                 .border(0.6.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
                         ) {
                             Text(
-                                text = if (isGroupMode) {
-                                    "No matching contacts yet — you can still tap Create and invite members anytime!"
-                                } else {
-                                    "No other members discovered yet. Switch to Group Channel to spin up a room."
+                                text = when {
+                                    normalizedSearch.length >= 2 ->
+                                        "No account found matching \"$trimmedSearch\". Ask your friend for their exact @username."
+                                    isGroupMode ->
+                                        "No contacts yet. Type a friend's @username above to add them, or tap Create to set up your group."
+                                    else ->
+                                        "No contacts yet. Type a friend's @username or name above to find them and start chatting."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -449,7 +475,7 @@ fun NewConversationDialog(
                                                     size = 44.dp,
                                                     showPresence = true,
                                                     isOnline = person.isOnline,
-                                                    showStoryRing = person.isOnline
+                                                    showStoryRing = false
                                                 )
                                                 Spacer(modifier = Modifier.width(12.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
