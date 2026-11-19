@@ -51,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.HorizontalDivider
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.IosSearchField
@@ -58,10 +60,9 @@ import com.example.ui.components.SavedMessagesAvatar
 import com.example.ui.components.UniversPeopleSkeletonLoading
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
-import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.TelegramBlue
+import com.example.ui.theme.TelegramGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,7 +87,6 @@ fun PeopleScreen(
     modifier: Modifier = Modifier
 ) {
     val isDark = LocalIsTelegramDark.current
-    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
     val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
     val visibleContactIds = remember(connectedUserIds, matchedContactUserIds) {
         connectedUserIds + matchedContactUserIds
@@ -116,14 +116,23 @@ fun PeopleScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                modifier = Modifier.background(cosmicHeaderBrush),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                ),
-                navigationIcon = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = if (showBackButton) 6.dp else 18.dp,
+                            end = 16.dp,
+                            top = 10.dp,
+                            bottom = 8.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (showBackButton) {
                         IconButton(
                             onClick = onBack,
@@ -131,18 +140,17 @@ fun PeopleScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Back"
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground
                             )
                         }
                     }
-                },
-                title = {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Contacts",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
                             text = if (contactCount > 0) {
@@ -150,12 +158,16 @@ fun PeopleScreen(
                             } else {
                                 "Private contacts"
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.78f)
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            )
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.7f)
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -483,7 +495,7 @@ private fun SyncContactsBannerCard(
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = TelegramBlue,
+                    containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = Color.White
                 ),
                 modifier = Modifier
@@ -553,7 +565,7 @@ private fun PrivateContactsEmptyState(
                 onClick = onRequestContactsSync,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = TelegramBlue,
+                    containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = Color.White
                 ),
                 modifier = Modifier.height(48.dp)
@@ -687,8 +699,8 @@ private fun UniversContactCard(
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (profile.isOnline) TelegramBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (profile.isOnline) FontWeight.Medium else FontWeight.Normal,
+                    color = if (profile.isOnline) TelegramGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (profile.isOnline) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

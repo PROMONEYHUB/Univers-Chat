@@ -112,12 +112,10 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatDayHeader
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.isSameCalendarDay
-import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramDarkBar
-import com.example.ui.theme.TelegramSteelBlue
+import com.example.ui.theme.LocalUniversAccent
+import com.example.ui.theme.TelegramGreen
 import com.example.ui.viewmodel.ChatRoomViewModel
 import com.example.ui.viewmodel.VoiceUploadState
 import kotlinx.coroutines.Dispatchers
@@ -163,7 +161,8 @@ fun ChatRoomScreen(
     val haptics = rememberIosHaptics()
     val scope = rememberCoroutineScope()
     val isDark = LocalIsTelegramDark.current
-    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
+    val accent = LocalUniversAccent.current
+    val accentPrimary = accent.primary(isDark)
 
     val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
@@ -548,160 +547,186 @@ fun ChatRoomScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                modifier = Modifier.background(cosmicHeaderBrush),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
-                ),
-                navigationIcon = {
-                    if (showBackButton) {
-                        IconButton(
-                            onClick = {
-                                haptics.lightTap()
-                                onBack()
-                            },
-                            modifier = Modifier.testTag("chat_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Back to chats"
-                            )
-                        }
-                    }
-                },
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(enabled = conversation != null) {
-                                haptics.lightTap()
-                                when {
-                                    isGroup -> showGroupInfoDialog = true
-                                    !isSelfChat && otherId != null && onOpenUserProfile != null -> onOpenUserProfile(otherId)
-                                    else -> showDirectInfoDialog = true
-                                }
-                            }
-                            .padding(vertical = 4.dp, horizontal = 2.dp)
-                    ) {
-                        UserAvatar(
-                            name = title,
-                            photoUrl = if (isGroup || isSelfChat) null else (otherProfile?.photoUrl ?: conversation?.participantPhotos?.get(otherId)),
-                            size = 40.dp,
-                            isGroup = isGroup,
-                            isSavedMessages = isSelfChat,
-                            showPresence = !isGroup && !isSelfChat && otherProfile != null,
-                            isOnline = isOtherOnline
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (isE2eeActive) {
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Icon(
-                                        imageVector = Icons.Rounded.Lock,
-                                        contentDescription = "End-to-end encrypted chat",
-                                        tint = Color(0xFFB3E5FC),
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .testTag("chat_header_e2ee_icon")
-                                    )
-                                }
-                            }
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = when {
-                                    typingHeaderSubtitle != null || isOtherOnline -> Color(0xFFB3E5FC)
-                                    else -> Color.White.copy(alpha = 0.78f)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    navigationIcon = {
+                        if (showBackButton) {
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    onBack()
                                 },
-                                fontWeight = if (typingHeaderSubtitle != null) FontWeight.SemiBold else FontWeight.Normal,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                                modifier = Modifier.testTag("chat_back_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Back to chats"
+                                )
+                            }
                         }
-                    }
-                },
-                actions = {
-                    if (canCallInThread) {
-                        val triggerCall: (Boolean) -> Unit = { isVideo ->
-                            val conv = conversation
-                            if (conv != null) {
-                                if (isGroup) {
-                                    pendingGroupCallVideo = isVideo
-                                } else if (otherId != null) {
-                                    val peerName = otherProfile?.displayName
-                                        ?: conv.participantNames[otherId]
-                                        ?: title
-                                    val peerPhoto = otherProfile?.photoUrl
-                                        ?: conv.participantPhotos[otherId]
-                                    onStartCall(
-                                        CallTarget(
-                                            userId = otherId,
-                                            displayName = peerName,
-                                            photoUrl = peerPhoto,
-                                            conversationId = conv.id
-                                        ),
-                                        isVideo
+                    },
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable(enabled = conversation != null) {
+                                    haptics.lightTap()
+                                    when {
+                                        isGroup -> showGroupInfoDialog = true
+                                        !isSelfChat && otherId != null && onOpenUserProfile != null -> onOpenUserProfile(otherId)
+                                        else -> showDirectInfoDialog = true
+                                    }
+                                }
+                                .padding(vertical = 4.dp, horizontal = 2.dp)
+                        ) {
+                            UserAvatar(
+                                name = title,
+                                photoUrl = if (isGroup || isSelfChat) null else (otherProfile?.photoUrl ?: conversation?.participantPhotos?.get(otherId)),
+                                size = 40.dp,
+                                isGroup = isGroup,
+                                isSavedMessages = isSelfChat,
+                                showPresence = !isGroup && !isSelfChat && otherProfile != null,
+                                isOnline = isOtherOnline
+                            )
+                            Spacer(modifier = Modifier.width(11.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (isE2eeActive) {
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Icon(
+                                            imageVector = Icons.Rounded.Lock,
+                                            contentDescription = "End-to-end encrypted chat",
+                                            tint = TelegramGreen,
+                                            modifier = Modifier
+                                                .size(13.dp)
+                                                .testTag("chat_header_e2ee_icon")
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = when {
+                                        typingHeaderSubtitle != null -> accentPrimary
+                                        isOtherOnline -> TelegramGreen
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    fontWeight = if (typingHeaderSubtitle != null || isOtherOnline) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        if (canCallInThread) {
+                            val triggerCall: (Boolean) -> Unit = { isVideo ->
+                                val conv = conversation
+                                if (conv != null) {
+                                    if (isGroup) {
+                                        pendingGroupCallVideo = isVideo
+                                    } else if (otherId != null) {
+                                        val peerName = otherProfile?.displayName
+                                            ?: conv.participantNames[otherId]
+                                            ?: title
+                                        val peerPhoto = otherProfile?.photoUrl
+                                            ?: conv.participantPhotos[otherId]
+                                        onStartCall(
+                                            CallTarget(
+                                                userId = otherId,
+                                                displayName = peerName,
+                                                photoUrl = peerPhoto,
+                                                conversationId = conv.id
+                                            ),
+                                            isVideo
+                                        )
+                                    }
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = accentPrimary.copy(alpha = if (isDark) 0.16f else 0.10f),
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        haptics.lightTap()
+                                        triggerCall(false)
+                                    }
+                                    .testTag("voice_call_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Call,
+                                        contentDescription = "Start HD voice call",
+                                        tint = accentPrimary,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = accentPrimary.copy(alpha = if (isDark) 0.16f else 0.10f),
+                                modifier = Modifier
+                                    .padding(end = 2.dp)
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        haptics.lightTap()
+                                        triggerCall(true)
+                                    }
+                                    .testTag("video_call_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Videocam,
+                                        contentDescription = "Start HD video call",
+                                        tint = accentPrimary,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
-                        IconButton(
-                            onClick = {
-                                haptics.lightTap()
-                                triggerCall(false)
-                            },
-                            modifier = Modifier.testTag("voice_call_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Call,
-                                contentDescription = "Start HD voice call"
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                haptics.lightTap()
-                                triggerCall(true)
-                            },
-                            modifier = Modifier.testTag("video_call_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Videocam,
-                                contentDescription = "Start HD video call"
-                            )
-                        }
-                    }
 
-                    Box {
-                        IconButton(
-                            onClick = {
-                                haptics.lightTap()
-                                showOverflowMenu = true
-                            },
-                            modifier = Modifier.testTag("chat_overflow_menu_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "More options"
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false }
-                        ) {
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    showOverflowMenu = true
+                                },
+                                modifier = Modifier.testTag("chat_overflow_menu_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false }
+                            ) {
                             DropdownMenuItem(
                                 text = { Text(if (showSearchBar) "Close Search" else "Search") },
                                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
@@ -758,11 +783,16 @@ fun ChatRoomScreen(
                                         if (isGroup) showGroupInfoDialog = true else showDirectInfoDialog = true
                                     }
                                 )
+                                }
                             }
                         }
                     }
-                }
-            )
+                )
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.72f)
+                )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -986,7 +1016,7 @@ fun ChatRoomScreen(
                                         .width(3.dp)
                                         .fillMaxHeight()
                                         .clip(CircleShape)
-                                        .background(TelegramBlue)
+                                        .background(MaterialTheme.colorScheme.primary)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -998,7 +1028,7 @@ fun ChatRoomScreen(
                                         },
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = TelegramBlue
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
                                         text = bannerTarget?.text?.ifBlank { "Photo / Voice / Poll" }.orEmpty(),
@@ -1059,7 +1089,7 @@ fun ChatRoomScreen(
                                     onClick = { onToggleBlockUser(otherId, false) },
                                     modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                                 ) {
-                                    Text("UNBLOCK", fontWeight = FontWeight.Bold, color = TelegramBlue)
+                                    Text("UNBLOCK", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -1397,7 +1427,7 @@ fun ChatRoomScreen(
                 Icon(
                     imageVector = Icons.Rounded.VerifiedUser,
                     contentDescription = null,
-                    tint = TelegramBlue,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
             },

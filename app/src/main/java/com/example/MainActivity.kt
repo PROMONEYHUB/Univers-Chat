@@ -127,13 +127,13 @@ import com.example.ui.components.rememberIosHaptics
 import com.example.ui.screens.CallHostOverlay
 import com.example.ui.screens.ChatRoomScreen
 import com.example.ui.screens.ChatsScreen
+import com.example.ui.screens.NotificationsScreen
 import com.example.ui.screens.PeopleScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.TelegramDrawerContent
 import com.example.ui.screens.UserProfileDetailScreen
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.PulseChatTheme
-import com.example.ui.theme.TelegramBlue
 import com.example.ui.viewmodel.CallViewModel
 import com.example.ui.viewmodel.ChatRoomViewModel
 import com.example.ui.viewmodel.MainMessagingViewModel
@@ -147,6 +147,7 @@ object Routes {
     const val CHATS = "chats"
     const val PEOPLE = "people"
     const val PROFILE = "profile"
+    const val NOTIFICATIONS = "notifications"
     const val CHAT_ROOM = "chat_room/{conversationId}"
     const val USER_PROFILE = "user_profile/{userId}"
 
@@ -165,7 +166,10 @@ class MainActivity : ComponentActivity() {
             val themePrefs = remember(context) { TelegramPreferencesState(context) }
             val resolvedDark = themePrefs.nightModeOverride ?: isSystemInDarkTheme()
 
-            PulseChatTheme(darkTheme = resolvedDark) {
+            PulseChatTheme(
+                darkTheme = resolvedDark,
+                accentTheme = themePrefs.accentTheme
+            ) {
                 CompositionLocalProvider(LocalTelegramWallpaper provides themePrefs.wallpaperStyle) {
                     PulseChatApp(
                         themePrefs = themePrefs,
@@ -519,6 +523,7 @@ private fun AuthenticatedShell(
 
     var expandedSelectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedViewingUserId by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedShowNotifications by rememberSaveable { mutableStateOf(false) }
     var activeTab by rememberSaveable { mutableStateOf(Routes.CHATS) }
     var newGroupTrigger by remember { mutableIntStateOf(0) }
     var callHistoryTrigger by remember { mutableIntStateOf(0) }
@@ -575,6 +580,7 @@ private fun AuthenticatedShell(
                         onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
                         onSelectRoute = {
                             expandedViewingUserId = null
+                            expandedShowNotifications = false
                             activeTab = it
                         }
                     )
@@ -627,6 +633,45 @@ private fun AuthenticatedShell(
                             },
                             modifier = Modifier.weight(1f).fillMaxHeight()
                         )
+                    } else if (expandedShowNotifications) {
+                        NotificationsScreen(
+                            currentUserId = currentUserId,
+                            conversations = allConversations,
+                            people = allPeople,
+                            callHistory = callHistory,
+                            blockedUserIds = blockedUserIds,
+                            notificationsEnabled = notificationsEnabled,
+                            hasPhoneNotificationPermission = hasNotificationPermission,
+                            inAppBannersEnabled = themePrefs.inAppBannersEnabled,
+                            showMessagePreviews = themePrefs.showMessagePreviews,
+                            vibrateEnabled = themePrefs.vibrateEnabled,
+                            onBack = { expandedShowNotifications = false },
+                            onOpenConversation = { convId ->
+                                expandedShowNotifications = false
+                                expandedSelectedChatId = convId
+                                activeTab = Routes.CHATS
+                            },
+                            onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                            onMarkAllRead = mainViewModel::markAllConversationsRead,
+                            onCallBack = { target, isVideo ->
+                                launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                            },
+                            onToggleNotificationsEnabled = { enabled ->
+                                if (enabled && !hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                                mainViewModel.updatePrivacyPreferences(readReceiptsEnabled, enabled)
+                            },
+                            onRequestNotificationPermission = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            onToggleInAppBanners = themePrefs::updateInAppBanners,
+                            onToggleShowMessagePreviews = themePrefs::updateShowMessagePreviews,
+                            onToggleVibrate = themePrefs::updateVibrate,
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
                     } else if (activeTab == Routes.CHATS) {
                         Box(modifier = Modifier.width(380.dp).fillMaxHeight()) {
                             ChatsScreen(
@@ -653,6 +698,7 @@ private fun AuthenticatedShell(
                                     mainViewModel.deleteOrLeaveConversation(conversation, onResult)
                                 },
                                 onProfileClick = { activeTab = Routes.PROFILE },
+                                onOpenNotifications = { expandedShowNotifications = true },
                                 blockedUserIds = blockedUserIds,
                                 callHistory = callHistory,
                                 onTogglePinConversation = mainViewModel::togglePinConversation,
@@ -761,6 +807,10 @@ private fun AuthenticatedShell(
                             onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
                             wallpaperStyle = themePrefs.wallpaperStyle,
                             onSelectWallpaper = themePrefs::selectWallpaper,
+                            accentTheme = themePrefs.accentTheme,
+                            onSelectAccentTheme = themePrefs::selectAccentTheme,
+                            onOpenNotifications = { expandedShowNotifications = true },
+                            unreadNotificationsCount = totalUnread,
                             onOpenSavedMessages = currentUserProfile?.let { me ->
                                 {
                                     mainViewModel.startDirectChat(me) { convId ->
@@ -875,6 +925,7 @@ private fun AuthenticatedShell(
                                     onOpenDrawer = if (!isMedium) {
                                         { coroutineScope.launch { drawerState.open() } }
                                     } else null,
+                                    onOpenNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
                                     blockedUserIds = blockedUserIds,
                                     callHistory = callHistory,
                                     onTogglePinConversation = mainViewModel::togglePinConversation,
@@ -954,6 +1005,10 @@ private fun AuthenticatedShell(
                                     onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
                                     wallpaperStyle = themePrefs.wallpaperStyle,
                                     onSelectWallpaper = themePrefs::selectWallpaper,
+                                    accentTheme = themePrefs.accentTheme,
+                                    onSelectAccentTheme = themePrefs::selectAccentTheme,
+                                    onOpenNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
+                                    unreadNotificationsCount = totalUnread,
                                     onOpenSavedMessages = currentUserProfile?.let { me ->
                                         {
                                             mainViewModel.startDirectChat(me) { convId ->
@@ -961,6 +1016,60 @@ private fun AuthenticatedShell(
                                             }
                                         }
                                     }
+                                )
+                            }
+
+                            composable(
+                                route = Routes.NOTIFICATIONS,
+                                enterTransition = {
+                                    slideIntoContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.Start,
+                                        tween(220, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(tween(180))
+                                },
+                                popExitTransition = {
+                                    slideOutOfContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.End,
+                                        tween(210, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(160))
+                                }
+                            ) {
+                                NotificationsScreen(
+                                    currentUserId = currentUserId,
+                                    conversations = allConversations,
+                                    people = allPeople,
+                                    callHistory = callHistory,
+                                    blockedUserIds = blockedUserIds,
+                                    notificationsEnabled = notificationsEnabled,
+                                    hasPhoneNotificationPermission = hasNotificationPermission,
+                                    inAppBannersEnabled = themePrefs.inAppBannersEnabled,
+                                    showMessagePreviews = themePrefs.showMessagePreviews,
+                                    vibrateEnabled = themePrefs.vibrateEnabled,
+                                    onBack = { navController.popBackStack() },
+                                    onOpenConversation = { convId ->
+                                        navController.navigate(Routes.chatRoom(convId)) {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onToggleMuteConversation = mainViewModel::toggleMuteConversation,
+                                    onMarkAllRead = mainViewModel::markAllConversationsRead,
+                                    onCallBack = { target, isVideo ->
+                                        launchWithCallPermissions(PendingCallAction.Outgoing(target, isVideo))
+                                    },
+                                    onToggleNotificationsEnabled = { enabled ->
+                                        if (enabled && !hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                        mainViewModel.updatePrivacyPreferences(readReceiptsEnabled, enabled)
+                                    },
+                                    onRequestNotificationPermission = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    },
+                                    onToggleInAppBanners = themePrefs::updateInAppBanners,
+                                    onToggleShowMessagePreviews = themePrefs::updateShowMessagePreviews,
+                                    onToggleVibrate = themePrefs::updateVibrate
                                 )
                             }
 
@@ -1119,7 +1228,12 @@ private fun AuthenticatedShell(
                             onSignOutClick = {
                                 coroutineScope.launch { drawerState.close() }
                                 performSignOut()
-                            }
+                            },
+                            onNotificationsClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                navController.navigate(Routes.NOTIFICATIONS)
+                            },
+                            unreadNotificationsCount = totalUnread
                         )
                     }
                 ) {
@@ -1152,7 +1266,8 @@ private fun AuthenticatedShell(
         )
 
         IosInAppNotificationBanner(
-            banner = activeBanner,
+            banner = if (themePrefs.inAppBannersEnabled) activeBanner else null,
+            showMessagePreview = themePrefs.showMessagePreviews,
             onOpenConversation = { convId ->
                 activeBanner = null
                 MessageNotificationCoordinator.emitDeepLinkConversation(convId)
@@ -1265,7 +1380,7 @@ private fun UniversBottomNavigationBar(
                         badge = {
                             if (totalUnread > 0L) {
                                 Badge(
-                                    containerColor = TelegramBlue,
+                                    containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = Color.White
                                 ) {
                                     Text(if (totalUnread > 99L) "99+" else totalUnread.toString())
@@ -1328,8 +1443,8 @@ private fun PulseNavigationRail(
 ) {
     val haptics = rememberIosHaptics()
     val railItemColors = NavigationRailItemDefaults.colors(
-        selectedIconColor = TelegramBlue,
-        selectedTextColor = TelegramBlue,
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
         indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1356,7 +1471,7 @@ private fun PulseNavigationRail(
                     badge = {
                         if (totalUnread > 0L) {
                             Badge(
-                                containerColor = TelegramBlue,
+                                containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = Color.White
                             ) {
                                 Text(if (totalUnread > 99L) "99+" else totalUnread.toString())

@@ -38,12 +38,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.R
-import com.example.ui.theme.AuroraCyan
-import com.example.ui.theme.AuroraViolet
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramBlueBright
+import com.example.ui.theme.LocalUniversAccent
 import com.example.ui.theme.TelegramDarkChatCanvas
+import com.example.ui.theme.UniversAccentTheme
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -54,47 +52,59 @@ enum class TelegramWallpaperStyle(
     val lightMid: Color,
     val lightBottom: Color,
     val darkTop: Color,
-    val darkBottom: Color
+    val darkBottom: Color,
+    val orbPrimary: Color,
+    val orbSecondary: Color
 ) {
     COSMIC_AURORA(
-        label = "Univers Midnight",
-        lightTop = Color(0xFFF0EFFF),
-        lightMid = Color(0xFFE6E4FF),
-        lightBottom = Color(0xFFDDD9FE),
-        darkTop = Color(0xFF0A0B14),
-        darkBottom = Color(0xFF14152B)
+        label = "Ocean Midnight",
+        lightTop = Color(0xFFEAF4FC),
+        lightMid = Color(0xFFDCEEFB),
+        lightBottom = Color(0xFFCDE6F8),
+        darkTop = Color(0xFF070C14),
+        darkBottom = Color(0xFF0D1B2A),
+        orbPrimary = Color(0xFF00C6A7),
+        orbSecondary = Color(0xFF007AFF)
     ),
     CLASSIC_BOTANICAL(
-        label = "Botanical Mist",
-        lightTop = Color(0xFFD5E4C3),
-        lightMid = Color(0xFFBBD7A8),
-        lightBottom = Color(0xFFA2C99A),
-        darkTop = Color(0xFF0B1520),
-        darkBottom = Color(0xFF112233)
+        label = "Emerald Forest",
+        lightTop = Color(0xFFE5F3E6),
+        lightMid = Color(0xFFD2E9D5),
+        lightBottom = Color(0xFFBEDDC2),
+        darkTop = Color(0xFF061210),
+        darkBottom = Color(0xFF0D241F),
+        orbPrimary = Color(0xFF10B981),
+        orbSecondary = Color(0xFF06B6D4)
     ),
     OCEAN_SKY(
-        label = "Azure Sky",
-        lightTop = Color(0xFFD3E9FB),
-        lightMid = Color(0xFFB6DAF8),
-        lightBottom = Color(0xFFA0CEF5),
-        darkTop = Color(0xFF081626),
-        darkBottom = Color(0xFF112842)
+        label = "Arctic Glacier",
+        lightTop = Color(0xFFE9F2FA),
+        lightMid = Color(0xFFD8E9F7),
+        lightBottom = Color(0xFFC5DFF5),
+        darkTop = Color(0xFF08101C),
+        darkBottom = Color(0xFF102238),
+        orbPrimary = Color(0xFF38BDF8),
+        orbSecondary = Color(0xFF2563EB)
     ),
     LAVENDER_DUSK(
-        label = "Nebula Dusk",
-        lightTop = Color(0xFFEAE2FC),
-        lightMid = Color(0xFFDACCF7),
-        lightBottom = Color(0xFFCCB8F2),
-        darkTop = Color(0xFF101124),
-        darkBottom = Color(0xFF1C1A3A)
+        label = "Sunset Rose",
+        lightTop = Color(0xFFFDF0ED),
+        lightMid = Color(0xFFF9E2DC),
+        lightBottom = Color(0xFFF4D3CB),
+        darkTop = Color(0xFF140B10),
+        darkBottom = Color(0xFF24131D),
+        orbPrimary = Color(0xFFFF6B4A),
+        orbSecondary = Color(0xFFE11D48)
     ),
     SAND_MINIMAL(
-        label = "Warm Sand",
-        lightTop = Color(0xFFF5EEE2),
-        lightMid = Color(0xFFEBE0CC),
-        lightBottom = Color(0xFFE1D2B8),
-        darkTop = Color(0xFF12161C),
-        darkBottom = Color(0xFF192029)
+        label = "Warm Linen",
+        lightTop = Color(0xFFF8F3EA),
+        lightMid = Color(0xFFEFE6D6),
+        lightBottom = Color(0xFFE6D9C2),
+        darkTop = Color(0xFF12110E),
+        darkBottom = Color(0xFF1D1A14),
+        orbPrimary = Color(0xFFF59E0B),
+        orbSecondary = Color(0xFFD97706)
     );
 
     fun next(): TelegramWallpaperStyle {
@@ -127,6 +137,25 @@ class TelegramPreferencesState(context: Context) {
     )
         private set
 
+    var accentTheme by mutableStateOf(
+        runCatching {
+            UniversAccentTheme.valueOf(
+                prefs.getString(KEY_ACCENT_THEME, UniversAccentTheme.OCEAN.name)
+                    ?: UniversAccentTheme.OCEAN.name
+            )
+        }.getOrDefault(UniversAccentTheme.OCEAN)
+    )
+        private set
+
+    var inAppBannersEnabled by mutableStateOf(prefs.getBoolean(KEY_IN_APP_BANNERS, true))
+        private set
+
+    var showMessagePreviews by mutableStateOf(prefs.getBoolean(KEY_MESSAGE_PREVIEWS, true))
+        private set
+
+    var vibrateEnabled by mutableStateOf(prefs.getBoolean(KEY_VIBRATE, true))
+        private set
+
     fun toggleNightMode(currentlyDark: Boolean) {
         val next = !currentlyDark
         nightModeOverride = next
@@ -152,17 +181,41 @@ class TelegramPreferencesState(context: Context) {
         selectWallpaper(wallpaperStyle.next())
     }
 
+    fun selectAccentTheme(theme: UniversAccentTheme) {
+        accentTheme = theme
+        prefs.edit().putString(KEY_ACCENT_THEME, theme.name).apply()
+    }
+
+    fun updateInAppBanners(enabled: Boolean) {
+        inAppBannersEnabled = enabled
+        prefs.edit().putBoolean(KEY_IN_APP_BANNERS, enabled).apply()
+    }
+
+    fun updateShowMessagePreviews(enabled: Boolean) {
+        showMessagePreviews = enabled
+        prefs.edit().putBoolean(KEY_MESSAGE_PREVIEWS, enabled).apply()
+    }
+
+    fun updateVibrate(enabled: Boolean) {
+        vibrateEnabled = enabled
+        prefs.edit().putBoolean(KEY_VIBRATE, enabled).apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "univers_telegram_prefs"
         const val KEY_NIGHT_MODE = "night_mode_override"
         const val KEY_WALLPAPER = "wallpaper_style"
+        const val KEY_ACCENT_THEME = "accent_theme"
+        const val KEY_IN_APP_BANNERS = "in_app_banners_enabled"
+        const val KEY_MESSAGE_PREVIEWS = "show_message_previews"
+        const val KEY_VIBRATE = "vibrate_enabled"
     }
 }
 
 val LocalTelegramWallpaper = compositionLocalOf { TelegramWallpaperStyle.COSMIC_AURORA }
 
 /**
- * Living Cosmic Aurora & geometric constellation chat wallpaper with gentle breathing luminescence.
+ * Refined atmospheric chat wallpaper with cached soft radial luminescence and subtle geometric linework.
  */
 @Composable
 fun TelegramChatWallpaper(
@@ -172,9 +225,9 @@ fun TelegramChatWallpaper(
     val isDark = LocalIsTelegramDark.current
     val baseColor = if (isDark) TelegramDarkChatCanvas else style.lightMid
     val doodleColor = if (isDark) {
-        Color(0xFF8B8DFF).copy(alpha = 0.085f)
+        style.orbPrimary.copy(alpha = 0.06f)
     } else {
-        Color(0xFF4338CA).copy(alpha = 0.070f)
+        style.orbSecondary.copy(alpha = 0.055f)
     }
 
     Box(
@@ -187,13 +240,13 @@ fun TelegramChatWallpaper(
                 } else {
                     Brush.verticalGradient(colors = listOf(style.lightTop, style.lightMid, style.lightBottom))
                 }
-                val orb1Center = Offset(x = size.width * 0.22f, y = size.height * 0.22f)
-                val orb2Center = Offset(x = size.width * 0.80f, y = size.height * 0.74f)
-                val orb1Radius = (size.minDimension * 0.62f).coerceAtLeast(1f)
-                val orb2Radius = (size.minDimension * 0.58f).coerceAtLeast(1f)
+                val orb1Center = Offset(x = size.width * 0.18f, y = size.height * 0.18f)
+                val orb2Center = Offset(x = size.width * 0.84f, y = size.height * 0.78f)
+                val orb1Radius = (size.minDimension * 0.68f).coerceAtLeast(1f)
+                val orb2Radius = (size.minDimension * 0.62f).coerceAtLeast(1f)
                 val orb1Brush = Brush.radialGradient(
                     colors = listOf(
-                        AuroraCyan.copy(alpha = if (isDark) 0.14f else 0.16f),
+                        style.orbPrimary.copy(alpha = if (isDark) 0.12f else 0.14f),
                         Color.Transparent
                     ),
                     center = orb1Center,
@@ -201,24 +254,24 @@ fun TelegramChatWallpaper(
                 )
                 val orb2Brush = Brush.radialGradient(
                     colors = listOf(
-                        AuroraViolet.copy(alpha = if (isDark) 0.12f else 0.10f),
+                        style.orbSecondary.copy(alpha = if (isDark) 0.11f else 0.10f),
                         Color.Transparent
                     ),
                     center = orb2Center,
                     radius = orb2Radius
                 )
 
-                val stepX = 112.dp.toPx()
-                val stepY = 112.dp.toPx()
-                val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                val stepX = 120.dp.toPx()
+                val stepY = 120.dp.toPx()
+                val stroke = Stroke(width = 1.3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                 val combinedPath = Path()
                 val planetCenters = ArrayList<Offset>(16)
-                val rPlanet = 14.dp.toPx()
-                val rStar = 12.dp.toPx()
-                val rBubble = 14.dp.toPx()
-                val rMoon = 11.dp.toPx()
-                val rBolt = 13.dp.toPx()
-                val rHeart = 12.dp.toPx()
+                val rPlanet = 13.dp.toPx()
+                val rStar = 11.dp.toPx()
+                val rBubble = 13.dp.toPx()
+                val rMoon = 10.dp.toPx()
+                val rBolt = 12.dp.toPx()
+                val rHeart = 11.dp.toPx()
                 val ringSize = Size(rPlanet * 2.3f, rPlanet * 0.64f)
 
                 var row = 0
@@ -342,15 +395,13 @@ fun SavedMessagesAvatar(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier
 ) {
+    val accent = LocalUniversAccent.current
+    val isDark = LocalIsTelegramDark.current
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(TelegramBlueBright, TelegramBlue)
-                )
-            ),
+            .background(accent.brandGradient(isDark)),
         contentAlignment = Alignment.Center
     ) {
         Icon(

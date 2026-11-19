@@ -385,6 +385,25 @@ class MainMessagingViewModel(
         }
     }
 
+    fun markAllConversationsRead() {
+        val allConvs = (conversationsState.value as? UiState.Success)?.data.orEmpty()
+        val unread = allConvs.filter { it.unreadCountFor(currentUserId) > 0L }
+        if (unread.isEmpty()) return
+        val sendReceipts = privateUser.value?.readReceiptsEnabled ?: true
+        viewModelScope.launch {
+            var failures = 0
+            unread.forEach { conv ->
+                repository.markConversationRead(conv, sendReadReceipt = sendReceipts)
+                    .onFailure { failures++ }
+            }
+            _actionMessage.value = if (failures == 0) {
+                "All chats marked as read"
+            } else {
+                "Marked ${unread.size - failures} of ${unread.size} chats as read"
+            }
+        }
+    }
+
     fun setUserBlocked(targetUserId: String, blocked: Boolean) {
         viewModelScope.launch {
             repository.setUserBlocked(targetUserId, blocked)

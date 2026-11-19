@@ -1,17 +1,7 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +12,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,19 +28,19 @@ import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,10 +54,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -82,14 +72,10 @@ import com.example.data.model.UserProfile
 import com.example.ui.components.UniversChatsSkeletonLoading
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.bouncyPressScale
-import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
+import com.example.ui.theme.BadgeCoral
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.PulseBrushes
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramBlueBright
-import com.example.ui.theme.TelegramDarkBar
-import com.example.ui.theme.TelegramSteelBlue
+import com.example.ui.theme.LocalUniversAccent
 import com.example.ui.viewmodel.ChatFilter
 import kotlinx.coroutines.delay
 
@@ -111,6 +97,7 @@ fun ChatsScreen(
     onDeleteConversation: (Conversation, onResult: (Boolean) -> Unit) -> Unit = { _, onResult -> onResult(false) },
     onProfileClick: () -> Unit = {},
     onOpenDrawer: (() -> Unit)? = null,
+    onOpenNotifications: (() -> Unit)? = null,
     blockedUserIds: Set<String> = emptySet(),
     callHistory: List<CallSession> = emptyList(),
     onTogglePinConversation: (Conversation) -> Unit = {},
@@ -124,7 +111,8 @@ fun ChatsScreen(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
+    val accent = LocalUniversAccent.current
+    val accentPrimary = accent.primary(isDark)
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var openDialogInGroupMode by remember { mutableStateOf(false) }
@@ -161,8 +149,19 @@ fun ChatsScreen(
             .filter { it != currentUserId && it !in blockedUserIds }
             .toSet()
     }
+    val activeStoryPeople = remember(peopleList, connectedUserIds, currentUserId, blockedUserIds) {
+        peopleList
+            .filter { it.userId != currentUserId && it.userId !in blockedUserIds && it.userId in connectedUserIds }
+            .sortedWith(compareByDescending<UserProfile> { it.isOnline }.thenBy { it.displayName.lowercase() })
+            .take(12)
+    }
     val unreadConvCount = remember(allConversations, currentUserId) {
         allConversations.count { it.unreadCountFor(currentUserId) > 0L }
+    }
+    val hasMissedCallAlert = remember(callHistory, currentUserId) {
+        callHistory.take(5).any {
+            it.callerId != currentUserId && (it.status == CallSession.STATUS_MISSED || it.status == CallSession.STATUS_DECLINED)
+        }
     }
 
     var typingClockMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -180,163 +179,216 @@ fun ChatsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(modifier = Modifier.fillMaxWidth().background(cosmicHeaderBrush)) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White
-                    ),
-                    navigationIcon = {
-                        if (isSearchExpanded) {
-                            IconButton(
-                                onClick = {
-                                    haptics.lightTap()
-                                    isSearchExpanded = false
-                                    onSearchQueryChange("")
-                                },
-                                modifier = Modifier.testTag("chats_search_close_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Close search"
-                                )
-                            }
-                        } else if (onOpenDrawer != null) {
-                            IconButton(
-                                onClick = {
-                                    haptics.lightTap()
-                                    onOpenDrawer()
-                                },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+            ) {
+                if (isSearchExpanded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.72f else 0.82f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                        ) {
+                            Row(
                                 modifier = Modifier
-                                    .padding(start = 6.dp)
-                                    .testTag("drawer_menu_button")
+                                    .fillMaxSize()
+                                    .padding(horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        haptics.lightTap()
+                                        isSearchExpanded = false
+                                        onSearchQueryChange("")
+                                    },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .testTag("chats_search_close_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "Close search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "Search chats, people, messages…",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = onSearchQueryChange,
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        ),
+                                        cursorBrush = SolidColor(accentPrimary),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("chats_search_input")
+                                    )
+                                }
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            haptics.lightTap()
+                                            onSearchQueryChange("")
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Clear search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onOpenDrawer != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        haptics.lightTap()
+                                        onOpenDrawer()
+                                    }
+                                    .testTag("drawer_menu_button"),
+                                contentAlignment = Alignment.Center
                             ) {
                                 UserAvatar(
                                     name = currentUserProfile?.displayName?.ifBlank { "Me" } ?: "Me",
                                     photoUrl = currentUserProfile?.photoUrl,
-                                    size = 34.dp,
-                                    showPresence = false,
+                                    size = 38.dp,
+                                    showPresence = true,
+                                    isOnline = currentUserProfile?.isOnline != false,
                                     showStoryRing = false
                                 )
                             }
+                            Spacer(modifier = Modifier.width(12.dp))
                         }
-                    },
-                    title = {
-                        if (isSearchExpanded) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "Search",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White.copy(alpha = 0.65f)
-                                    )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = onSearchQueryChange,
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.titleMedium.copy(
-                                        color = Color.White
-                                    ),
-                                    cursorBrush = SolidColor(Color.White),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("chats_search_input")
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (conversationsState is UiState.Loading) {
+                                CircularProgressIndicator(
+                                    color = accentPrimary,
+                                    strokeWidth = 2.2.dp,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                if (conversationsState is UiState.Loading) {
-                                    CircularProgressIndicator(
-                                        color = Color.White,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Text(
-                                    text = if (conversationsState is UiState.Loading) {
-                                        "Connecting…"
-                                    } else {
-                                        stringResource(R.string.app_name)
-                                    },
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            Text(
+                                text = if (conversationsState is UiState.Loading) {
+                                    "Connecting…"
+                                } else {
+                                    "Chats"
+                                },
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                    },
-                    actions = {
-                        if (isSearchExpanded) {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (onOpenNotifications != null) {
+                                HeaderCircleIconButton(
+                                    icon = Icons.Rounded.NotificationsNone,
+                                    contentDescription = "Notifications center",
+                                    showBadgeDot = unreadConvCount > 0 || hasMissedCallAlert,
+                                    badgeColor = BadgeCoral,
+                                    testTag = "header_notifications_button",
                                     onClick = {
                                         haptics.lightTap()
-                                        onSearchQueryChange("")
+                                        onOpenNotifications()
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "Clear search"
+                                )
+                            } else {
+                                currentUserProfile?.let { me ->
+                                    HeaderCircleIconButton(
+                                        icon = Icons.Rounded.BookmarkBorder,
+                                        contentDescription = "Saved Messages",
+                                        testTag = "header_saved_messages_button",
+                                        onClick = {
+                                            haptics.lightTap()
+                                            onStartDirectChat(me)
+                                        }
                                     )
                                 }
                             }
-                        } else {
-                            currentUserProfile?.let { me ->
-                                IconButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        onStartDirectChat(me)
-                                    },
-                                    modifier = Modifier.testTag("header_saved_messages_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.BookmarkBorder,
-                                        contentDescription = "Saved Messages"
-                                    )
-                                }
-                            }
-                            IconButton(
+
+                            HeaderCircleIconButton(
+                                icon = Icons.Rounded.History,
+                                contentDescription = "Call history",
+                                testTag = "header_call_history_button",
                                 onClick = {
                                     haptics.lightTap()
                                     showCallHistoryDialog = true
-                                },
-                                modifier = Modifier.testTag("header_call_history_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.History,
-                                    contentDescription = "Call history"
-                                )
-                            }
-                            IconButton(
+                                }
+                            )
+
+                            HeaderCircleIconButton(
+                                icon = Icons.Rounded.Search,
+                                contentDescription = "Search chats",
+                                testTag = "chats_search_toggle_button",
                                 onClick = {
                                     haptics.lightTap()
                                     isSearchExpanded = true
-                                },
-                                modifier = Modifier.testTag("chats_search_toggle_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = "Search chats"
-                                )
-                            }
+                                }
+                            )
                         }
                     }
-                )
+                }
 
                 TelegramFolderTabsBar(
                     selectedFilter = selectedFilter,
                     unreadConvCount = unreadConvCount,
                     onSelectFilter = onSelectFilter
+                )
+
+                HorizontalDivider(
+                    thickness = 0.6.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.7f)
                 )
             }
         },
@@ -353,10 +405,15 @@ fun ChatsScreen(
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
                 modifier = Modifier
                     .bouncyPressScale(0.92f)
-                    .size(56.dp)
-                    .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = TelegramBlue, spotColor = TelegramBlue)
+                    .size(58.dp)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = RoundedCornerShape(18.dp),
+                        ambientColor = accentPrimary,
+                        spotColor = accentPrimary
+                    )
                     .clip(RoundedCornerShape(18.dp))
-                    .background(PulseBrushes.BrandGradient)
+                    .background(accent.brandGradient(isDark))
                     .testTag("new_chat_fab")
             ) {
                 Icon(
@@ -419,10 +476,24 @@ fun ChatsScreen(
                         }
                     }
 
+                    val showActiveStrip = !isSearchExpanded &&
+                        searchQuery.isBlank() &&
+                        selectedFilter == ChatFilter.ALL &&
+                        activeStoryPeople.isNotEmpty()
+
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
+                        contentPadding = PaddingValues(top = 2.dp, bottom = 100.dp)
                     ) {
+                        if (showActiveStrip) {
+                            item(key = "active_stories_strip") {
+                                TelegramStoriesRow(
+                                    people = activeStoryPeople,
+                                    onPersonClick = onStartDirectChat
+                                )
+                            }
+                        }
+
                         if (filtered.isEmpty()) {
                             item(key = "empty_chats_card") {
                                 EmptyChatsView(
@@ -438,7 +509,7 @@ fun ChatsScreen(
                                 )
                             }
                         } else {
-                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { _, conversation ->
+                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { idx, conversation ->
                                 val otherId = conversation.otherParticipantId(currentUserId)
                                 val otherProfile = otherId?.let { peopleMap[it] }
                                 val isPendingDelete = conversation.id in pendingDeleteIds
@@ -455,7 +526,7 @@ fun ChatsScreen(
                                         otherProfile = otherProfile,
                                         isSelected = conversation.id == selectedConversationId,
                                         isPendingDelete = isPendingDelete,
-                                        showBottomDivider = false,
+                                        showBottomDivider = idx < filtered.lastIndex,
                                         typingText = typingSummary,
                                         onOpen = { onOpenConversation(conversation.id) },
                                         onLongPress = { optionsTargetConversation = conversation },
@@ -526,5 +597,50 @@ fun ChatsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun HeaderCircleIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    testTag: String,
+    showBadgeDot: Boolean = false,
+    badgeColor: Color = BadgeCoral,
+    onClick: () -> Unit
+) {
+    val isDark = LocalIsTelegramDark.current
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .bouncyPressScale(0.92f)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.72f else 0.78f))
+            .border(
+                width = 0.7.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.7f),
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(21.dp)
+        )
+        if (showBadgeDot) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 8.dp)
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(badgeColor)
+                    .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape)
+            )
+        }
     }
 }

@@ -102,15 +102,12 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatMessageClock
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.PulseBrushes
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramDarkBlue
+import com.example.ui.theme.LocalUniversAccent
 import com.example.ui.theme.TelegramIncomingBubbleDark
 import com.example.ui.theme.TelegramIncomingBubbleLight
 import com.example.ui.theme.TelegramOutgoingSubtleDark
 import com.example.ui.theme.TelegramOutgoingSubtleLight
 import com.example.ui.theme.TelegramOutgoingTextLight
-import com.example.ui.theme.TelegramTickGreen
 
 val QuickReactionEmojis = Message.DEFAULT_TAPBACK_ORDER
 val IdleVoicePlaybackState = VoicePlaybackState()
@@ -136,28 +133,30 @@ fun MessageBubble(
     modifier: Modifier = Modifier
 ) {
     val isDark = LocalIsTelegramDark.current
+    val accent = LocalUniversAccent.current
+    val accentPrimary = accent.primary(isDark)
     val haptics = rememberIosHaptics()
 
     val bubbleShape = remember(isOwnMessage, isFirstInCluster, isLastInCluster) {
         if (isOwnMessage) {
             RoundedCornerShape(
-                topStart = 18.dp,
-                bottomStart = 18.dp,
-                topEnd = if (isFirstInCluster) 18.dp else 6.dp,
-                bottomEnd = if (isLastInCluster) 4.dp else 6.dp
+                topStart = 20.dp,
+                bottomStart = 20.dp,
+                topEnd = if (isFirstInCluster) 20.dp else 6.dp,
+                bottomEnd = if (isLastInCluster) 5.dp else 6.dp
             )
         } else {
             RoundedCornerShape(
-                topEnd = 18.dp,
-                bottomEnd = 18.dp,
-                topStart = if (isFirstInCluster) 18.dp else 6.dp,
-                bottomStart = if (isLastInCluster) 4.dp else 6.dp
+                topEnd = 20.dp,
+                bottomEnd = 20.dp,
+                topStart = if (isFirstInCluster) 20.dp else 6.dp,
+                bottomStart = if (isLastInCluster) 5.dp else 6.dp
             )
         }
     }
 
     val bubbleBrush: Brush = if (isOwnMessage) {
-        if (isDark) PulseBrushes.OutgoingBubbleDark else PulseBrushes.OutgoingBubbleLight
+        accent.outgoingBubbleBrush(isDark)
     } else {
         SolidColor(if (isDark) TelegramIncomingBubbleDark else TelegramIncomingBubbleLight)
     }
@@ -174,12 +173,12 @@ fun MessageBubble(
     }
     val tickColor = when {
         !isOwnMessage -> subtleColor
-        isDark -> Color(0xFFBAE6FD)
-        else -> Color.White.copy(alpha = 0.92f)
+        isDark -> Color.White.copy(alpha = 0.92f)
+        else -> Color.White.copy(alpha = 0.94f)
     }
     val accentBarColor = when {
-        isOwnMessage -> Color.White.copy(alpha = 0.85f)
-        else -> TelegramBlue
+        isOwnMessage -> Color.White.copy(alpha = 0.88f)
+        else -> accentPrimary
     }
 
     val reactionSummaries = remember(message.reactions, currentUserId) {
@@ -218,10 +217,10 @@ fun MessageBubble(
             Box(
                 modifier = Modifier
                     .shadow(
-                        elevation = if (isOwnMessage) 3.dp else if (isDark) 1.dp else 1.5.dp,
+                        elevation = if (isOwnMessage) 4.dp else if (isDark) 1.dp else 1.5.dp,
                         shape = bubbleShape,
-                        ambientColor = if (isOwnMessage) TelegramBlue else Color.Black,
-                        spotColor = if (isOwnMessage) TelegramBlue else Color.Black,
+                        ambientColor = if (isOwnMessage) accentPrimary else Color.Black,
+                        spotColor = if (isOwnMessage) accentPrimary else Color.Black,
                         clip = false
                     )
                     .clip(bubbleShape)
@@ -229,7 +228,7 @@ fun MessageBubble(
                     .border(
                         width = 0.75.dp,
                         color = when {
-                            isOwnMessage -> Color.White.copy(alpha = 0.18f)
+                            isOwnMessage -> Color.White.copy(alpha = 0.16f)
                             isDark -> Color.White.copy(alpha = 0.08f)
                             else -> Color(0xFFE2EAF4)
                         },
@@ -250,12 +249,12 @@ fun MessageBubble(
                         }
                     )
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)) {
                     if (!isOwnMessage && isGroup && isFirstInCluster) {
                         Text(
                             text = message.senderName,
                             style = MaterialTheme.typography.labelMedium,
-                            color = TelegramBlue,
+                            color = accentPrimary,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(bottom = 2.dp)
                         )
@@ -587,8 +586,8 @@ private fun TapbackEmojiPill(
     }
 
     val containerColor = when {
-        summary.reactedByCurrentUser -> TelegramBlue
-        isDark -> Color(0xFF1E293B)
+        summary.reactedByCurrentUser -> MaterialTheme.colorScheme.primary
+        isDark -> Color(0xFF182230)
         else -> Color.White
     }
     val borderColor = when {
@@ -943,7 +942,7 @@ fun MessageActionsDialog(
                         Surface(
                             shape = CircleShape,
                             color = if (isSelected) {
-                                TelegramBlue
+                                MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                             },
@@ -994,7 +993,7 @@ fun MessageActionsDialog(
                         ActionRow(
                             icon = Icons.Rounded.EmojiEmotions,
                             label = "Reactions ($totalReactions)",
-                            tint = TelegramBlue,
+                            tint = MaterialTheme.colorScheme.primary,
                             onClick = {
                                 haptics.lightTap()
                                 onDismiss()
@@ -1144,7 +1143,7 @@ fun MessageReactionsDetailDialog(
                     val allSelected = selectedEmojiFilter == null
                     Surface(
                         shape = CircleShape,
-                        color = if (allSelected) TelegramBlue else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .clip(CircleShape)
                             .clickable {
@@ -1165,7 +1164,7 @@ fun MessageReactionsDetailDialog(
                         val selected = selectedEmojiFilter == summary.emoji
                         Surface(
                             shape = CircleShape,
-                            color = if (selected) TelegramBlue else MaterialTheme.colorScheme.surfaceVariant,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .clickable {

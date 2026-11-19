@@ -78,6 +78,10 @@ data class CallSession(
 
     fun isOutgoingFor(userId: String): Boolean = callerId == userId
 
+    fun peerIdFor(userId: String): String {
+        return if (callerId == userId) calleeId else callerId
+    }
+
     fun peerNameFor(userId: String): String {
         return if (callerId == userId) calleeName.ifBlank { "Member" }
         else callerName.ifBlank { "Member" }

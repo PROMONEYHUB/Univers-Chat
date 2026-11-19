@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.theme.LocalIsTelegramDark
+import com.example.ui.theme.LocalUniversAccent
 import com.example.ui.theme.TelegramBlue
 import com.example.ui.theme.TelegramBlueBright
 import com.example.ui.theme.TelegramBlueDeep
@@ -106,24 +107,25 @@ fun Modifier.bouncyPressScale(
 }
 
 /**
- * Clean Univers Chat indigo-obsidian header gradient brush.
+ * Dynamic accent-matched header gradient brush (deep refined obsidian in dark mode,
+ * vibrant curated ocean/accent gradient in light mode).
  */
 @Composable
 fun rememberCosmicAuraHeaderBrush(isDark: Boolean): Brush {
-    return remember(isDark) {
+    val accent = LocalUniversAccent.current
+    return remember(isDark, accent) {
         if (isDark) {
-            Brush.verticalGradient(
+            Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFF111226),
-                    Color(0xFF171834)
+                    Color(0xFF0E1520),
+                    accent.containerDark
                 )
             )
         } else {
             Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFF3F37C9),
-                    Color(0xFF5B5CE6),
-                    Color(0xFF7251E8)
+                    accent.gradientStartLight,
+                    accent.gradientEndLight
                 )
             )
         }
@@ -310,8 +312,8 @@ fun rememberUniversShimmerBrush(): Brush {
         ),
         label = "univers_shimmer_x"
     )
-    val baseColor = if (isDark) Color(0xFF152236) else Color(0xFFE6EEF7)
-    val highlightColor = if (isDark) Color(0xFF233B5C) else Color(0xFFF6FAFF)
+    val baseColor = if (isDark) Color(0xFF141C27) else Color(0xFFE6ECF4)
+    val highlightColor = if (isDark) Color(0xFF1E2B3B) else Color(0xFFF5F8FC)
     return Brush.linearGradient(
         colors = listOf(baseColor, highlightColor, baseColor),
         start = Offset(translateAnim, 0f),

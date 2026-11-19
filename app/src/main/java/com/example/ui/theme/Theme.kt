@@ -2,6 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -13,16 +14,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 val LocalIsTelegramDark = compositionLocalOf { false }
+val LocalUniversAccent = compositionLocalOf { UniversAccentTheme.OCEAN }
 
-private val TelegramDarkColorScheme = darkColorScheme(
-    primary = TelegramDarkBlue,
-    onPrimary = Color.White,
-    primaryContainer = IosBlueContainerDark,
-    onPrimaryContainer = IosOnBlueContainerDark,
-    secondary = TelegramBlueBright,
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFF1E3247),
-    onSecondaryContainer = Color(0xFFD1E9FF),
+private fun buildDarkColorScheme(accent: UniversAccentTheme): ColorScheme = darkColorScheme(
+    primary = accent.primaryDark,
+    onPrimary = Color(0xFF04131E),
+    primaryContainer = accent.containerDark,
+    onPrimaryContainer = accent.onContainerDark,
+    secondary = accent.secondaryAccent,
+    onSecondary = Color(0xFF041A17),
+    secondaryContainer = Color(0xFF112634),
+    onSecondaryContainer = Color(0xFFCFFAFE),
     tertiary = TelegramGreen,
     onTertiary = Color.White,
     tertiaryContainer = IosGreenContainerDark,
@@ -33,7 +35,7 @@ private val TelegramDarkColorScheme = darkColorScheme(
     onSurface = TelegramDarkLabel,
     surfaceVariant = TelegramDarkFill,
     onSurfaceVariant = TelegramDarkSecondaryLabel,
-    outline = Color(0xFF334357),
+    outline = Color(0xFF2E3C50),
     outlineVariant = IosDarkHairline,
     error = IosDarkRed,
     onError = Color.White,
@@ -41,15 +43,15 @@ private val TelegramDarkColorScheme = darkColorScheme(
     onErrorContainer = IosOnRedContainerDark
 )
 
-private val TelegramLightColorScheme = lightColorScheme(
-    primary = TelegramBlue,
+private fun buildLightColorScheme(accent: UniversAccentTheme): ColorScheme = lightColorScheme(
+    primary = accent.primaryLight,
     onPrimary = Color.White,
-    primaryContainer = TelegramBlueContainerLight,
-    onPrimaryContainer = TelegramOnBlueContainerLight,
-    secondary = TelegramSteelBlue,
+    primaryContainer = accent.containerLight,
+    onPrimaryContainer = accent.onContainerLight,
+    secondary = accent.secondaryAccent,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE6EEF5),
-    onSecondaryContainer = Color(0xFF203A52),
+    secondaryContainer = Color(0xFFE6F6F4),
+    onSecondaryContainer = Color(0xFF064E46),
     tertiary = TelegramGreen,
     onTertiary = Color.White,
     tertiaryContainer = TelegramGreenContainerLight,
@@ -60,7 +62,7 @@ private val TelegramLightColorScheme = lightColorScheme(
     onSurface = TelegramLightLabel,
     surfaceVariant = TelegramLightFill,
     onSurfaceVariant = TelegramLightSecondaryLabel,
-    outline = Color(0xFFC5CCD4),
+    outline = Color(0xFFCBD5E1),
     outlineVariant = TelegramLightDivider,
     error = TelegramRed,
     onError = Color.White,
@@ -69,20 +71,28 @@ private val TelegramLightColorScheme = lightColorScheme(
 )
 
 val PulseShapes = Shapes(
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(22.dp)
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
 
 @Composable
 fun PulseChatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    accentTheme: UniversAccentTheme = UniversAccentTheme.OCEAN,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) TelegramDarkColorScheme else TelegramLightColorScheme
+    val colorScheme = if (darkTheme) {
+        buildDarkColorScheme(accentTheme)
+    } else {
+        buildLightColorScheme(accentTheme)
+    }
 
-    CompositionLocalProvider(LocalIsTelegramDark provides darkTheme) {
+    CompositionLocalProvider(
+        LocalIsTelegramDark provides darkTheme,
+        LocalUniversAccent provides accentTheme
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
