@@ -84,7 +84,6 @@ import com.example.R
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UserProfile
-import com.example.ui.components.LottieAnimationView
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.bouncyPressScale
 import com.example.ui.components.formatRelativeTime
