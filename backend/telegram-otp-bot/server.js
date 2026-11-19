@@ -165,7 +165,7 @@ function createFirebaseUserUpserter(auth, db) {
       blockedUserIds: Array.isArray(privateData.blockedUserIds) ? privateData.blockedUserIds.slice(0, 100) : [],
       createdAt: privateData.createdAt || now,
       updatedAt: now,
-    });
+    }, { merge: true });
 
     await publicRef.set({
       userId: uid,
@@ -179,7 +179,7 @@ function createFirebaseUserUpserter(auth, db) {
       lastSeenAt: now,
       createdAt: publicData.createdAt || now,
       updatedAt: now,
-    });
+    }, { merge: true });
 
     const firebaseCustomToken = await auth.createCustomToken(uid, {
       phone_number: phoneNumber,

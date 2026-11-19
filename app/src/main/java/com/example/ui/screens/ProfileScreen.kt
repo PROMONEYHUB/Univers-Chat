@@ -587,10 +587,13 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = statusVibe,
                         onValueChange = { statusVibe = it.take(60) },
-                        label = { Text("Status vibe") },
+                        label = { Text("Status Message") },
+                        placeholder = { Text("What's on your mind? (e.g., Available, In a meeting)") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_status_input")
                     )
                 }
 

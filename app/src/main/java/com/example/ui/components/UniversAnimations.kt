@@ -249,19 +249,19 @@ fun UniversAnimatedSplashOverlay(
     LaunchedEffect(visible) {
         if (!visible) return@LaunchedEffect
         launch {
-            contentAlpha.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
+            contentAlpha.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
         }
         launch {
-            logoScale.animateTo(1f, tween(340, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1f, tween(200, easing = FastOutSlowInEasing))
         }
-        delay(650L)
+        delay(260L)
         onFinished()
     }
 
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(100)),
-        exit = fadeOut(tween(260, easing = FastOutSlowInEasing)),
+        enter = fadeIn(tween(80)),
+        exit = fadeOut(tween(180, easing = FastOutSlowInEasing)),
         modifier = modifier.fillMaxSize()
     ) {
         Box(

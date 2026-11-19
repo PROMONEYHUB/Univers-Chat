@@ -20,6 +20,9 @@ data class PrivateUser(
     val readReceiptsEnabled: Boolean = true,
     val notificationsEnabled: Boolean = true,
     val blockedUserIds: List<String> = emptyList(),
+    val phoneHash: String = "",
+    val contactHashes: List<String> = emptyList(),
+    val fcmTokens: List<String> = emptyList(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
@@ -33,6 +36,8 @@ data class UserProfile(
     val bio: String = "",
     val photoUrl: String = "",
     val statusVibe: String = "Available",
+    val phoneHash: String = "",
+    val e2eeIdentityKey: String = "",
     @get:PropertyName("isOnline") @field:PropertyName("isOnline")
     val isOnline: Boolean = true,
     @get:PropertyName("isDiscoverable") @field:PropertyName("isDiscoverable")
@@ -64,6 +69,7 @@ data class Conversation(
     val pinnedMessagePreview: String? = null,
     val pinnedMessageSenderName: String? = null,
     val typingBy: Map<String, Timestamp> = emptyMap(),
+    val lastReadAt: Map<String, Timestamp> = emptyMap(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
@@ -88,6 +94,17 @@ data class Conversation(
     fun isPinnedBy(userId: String): Boolean = pinnedBy[userId] == true
 
     fun isMutedBy(userId: String): Boolean = mutedBy[userId] == true
+
+    fun isMessageReadByOthers(message: Message, currentUserId: String): Boolean {
+        if (message.senderId != currentUserId) return false
+        val msgMillis = message.createdAt?.toDate()?.time ?: return false
+        val otherIds = participantIds.filter { it != currentUserId }
+        if (otherIds.isEmpty()) return true
+        return otherIds.any { peerId ->
+            val peerReadMillis = lastReadAt[peerId]?.toDate()?.time ?: 0L
+            peerReadMillis >= msgMillis
+        }
+    }
 
     fun activeTypingUserIds(
         currentUserId: String,
@@ -146,6 +163,7 @@ data class Message(
     val type: String = TYPE_TEXT,
     val text: String = "",
     val imageBase64: String? = null,
+    val audioUrl: String? = null,
     val audioBase64: String? = null,
     val audioDurationSec: Int = 0,
     @get:PropertyName("isForwarded") @field:PropertyName("isForwarded")
@@ -159,16 +177,63 @@ data class Message(
     val pollVotes: Map<String, String> = emptyMap(),
     @get:PropertyName("isEdited") @field:PropertyName("isEdited")
     val isEdited: Boolean = false,
+    @get:PropertyName("isEncrypted") @field:PropertyName("isEncrypted")
+    val isEncrypted: Boolean = false,
+    val e2eeVersion: Int = 0,
+    val ephemeralPublicKey: String? = null,
+    val encryptionIv: String? = null,
+    val senderIdentityKey: String? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
+    fun reactionSummaries(
+        currentUserId: String,
+        preferredOrder: List<String> = DEFAULT_TAPBACK_ORDER
+    ): List<ReactionSummary> {
+        if (reactions.isEmpty()) return emptyList()
+        val grouped = LinkedHashMap<String, MutableList<String>>()
+        reactions.entries
+            .sortedBy { it.key }
+            .forEach { (uid, emoji) ->
+                val clean = emoji.trim()
+                if (clean.isNotEmpty()) {
+                    grouped.getOrPut(clean) { mutableListOf() }.add(uid)
+                }
+            }
+        return grouped.entries
+            .map { (emoji, uids) ->
+                ReactionSummary(
+                    emoji = emoji,
+                    count = uids.size,
+                    userIds = uids,
+                    reactedByCurrentUser = currentUserId in uids
+                )
+            }
+            .sortedWith(
+                compareByDescending<ReactionSummary> { it.count }
+                    .thenBy {
+                        val idx = preferredOrder.indexOf(it.emoji)
+                        if (idx >= 0) idx else Int.MAX_VALUE
+                    }
+                    .thenBy { it.emoji }
+            )
+    }
+
     companion object {
         const val TYPE_TEXT = "text"
         const val TYPE_IMAGE = "image"
         const val TYPE_POLL = "poll"
         const val TYPE_AUDIO = "audio"
+        val DEFAULT_TAPBACK_ORDER = listOf("❤️", "👍", "👎", "😂", "😮", "😢", "🔥", "🎉")
     }
 }
+
+data class ReactionSummary(
+    val emoji: String,
+    val count: Int,
+    val userIds: List<String>,
+    val reactedByCurrentUser: Boolean
+)
 
 fun buildDirectConversationId(uidA: String, uidB: String): String {
     val sorted = listOf(uidA, uidB).sorted()

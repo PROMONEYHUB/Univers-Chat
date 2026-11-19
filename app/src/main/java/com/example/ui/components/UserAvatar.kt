@@ -74,22 +74,27 @@ fun UserAvatar(
     isOnline: Boolean = false,
     showStoryRing: Boolean = false
 ) {
-    val paletteIndex = (name.hashCode().absoluteValue) % TelegramAvatarGradients.size
-    val gradient = if (isSavedMessages) {
-        listOf(TelegramBlueBright, TelegramBlue)
-    } else {
-        TelegramAvatarGradients[paletteIndex]
+    val gradientBrush = remember(name, isSavedMessages) {
+        val gradient = if (isSavedMessages) {
+            listOf(TelegramBlueBright, TelegramBlue)
+        } else {
+            val paletteIndex = (name.hashCode().absoluteValue) % TelegramAvatarGradients.size
+            TelegramAvatarGradients[paletteIndex]
+        }
+        Brush.verticalGradient(gradient)
     }
-    val initials = name.trim()
-        .split(Regex("\\s+"))
-        .filter { it.isNotEmpty() }
-        .take(2)
-        .joinToString("") { it.first().uppercaseChar().toString() }
-        .ifEmpty { "U" }
+    val initials = remember(name) {
+        name.trim()
+            .split(' ', '\t', '\n')
+            .filter { it.isNotEmpty() }
+            .take(2)
+            .joinToString("") { it.first().uppercaseChar().toString() }
+            .ifEmpty { "U" }
+    }
 
     val decodedDataUriBitmap = remember(photoUrl) {
         if (photoUrl != null && ImageUtils.isDataUri(photoUrl)) {
-            ImageUtils.decodeDataUriToBitmap(photoUrl)?.asImageBitmap()
+            ImageUtils.decodeDataUriToImageBitmap(photoUrl)
         } else {
             null
         }
@@ -121,7 +126,7 @@ fun UserAvatar(
                     }
                 )
                 .clip(CircleShape)
-                .background(Brush.verticalGradient(gradient)),
+                .background(gradientBrush),
             contentAlignment = Alignment.Center
         ) {
             when {

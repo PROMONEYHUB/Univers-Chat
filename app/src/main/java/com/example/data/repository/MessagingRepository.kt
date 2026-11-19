@@ -2,6 +2,8 @@ package com.example.data.repository
 
 import android.content.Context
 import com.example.R
+import com.example.contacts.DeviceContactsManager
+import com.example.crypto.EncryptedPayload
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.PrivateUser
@@ -60,13 +62,29 @@ class MessagingRepository(
         throw error
     }
 
-    suspend fun syncCurrentUserProfile(firebaseUser: FirebaseUser): Result<Unit> = runCatching {
+    suspend fun syncCurrentUserProfile(
+        firebaseUser: FirebaseUser,
+        e2eePublicKey: String? = null
+    ): Result<Unit> = runCatching {
         val uid = requireUserId()
         require(uid == firebaseUser.uid) { "Authenticated UID mismatch" }
 
+        val pendingName = AuthProfilePrefill.pendingDisplayName?.takeIf { it.isNotBlank() }
+        val pendingPhoto = AuthProfilePrefill.pendingPhotoUrl?.takeIf { it.isNotBlank() }
+        val pendingPhone = AuthProfilePrefill.pendingPhoneNumber?.takeIf { it.isNotBlank() }
+        AuthProfilePrefill.pendingDisplayName = null
+        AuthProfilePrefill.pendingPhotoUrl = null
+        AuthProfilePrefill.pendingPhoneNumber = null
+
         val email = firebaseUser.email?.takeIf { it.isNotBlank() }
+            ?: pendingPhone
             ?: firebaseUser.phoneNumber?.takeIf { it.isNotBlank() }
             ?: "${uid}@universchat.local"
+        val computedPhoneHash = DeviceContactsManager.normalizePhoneToHash(
+            pendingPhone ?: firebaseUser.phoneNumber ?: email.takeIf { it.startsWith("+") }
+        )
+        val cleanE2eeKey = e2eePublicKey?.trim()?.take(256)?.takeIf { it.isNotBlank() }
+
         val privateRef = db.collection(USERS_COLLECTION).document(uid)
         val profileRef = db.collection(USER_PROFILES_COLLECTION).document(uid)
 
@@ -87,23 +105,40 @@ class MessagingRepository(
                     ?.filterIsInstance<String>()
                     ?.take(100)
                     ?: emptyList()
-                val payload = mapOf<String, Any>(
+                val existingContactHashes = (privateSnap.get("contactHashes") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.take(500)
+                    ?: emptyList()
+                val existingFcmTokens = (privateSnap.get("fcmTokens") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.take(20)
+                    ?: emptyList()
+                val existingPhoneHash = privateSnap.getString("phoneHash")?.takeIf { it.isNotBlank() }
+                    ?: computedPhoneHash
+                val payload = mutableMapOf<String, Any>(
                     "userId" to uid,
                     "email" to email.take(320),
                     "readReceiptsEnabled" to existingReadReceipts,
                     "notificationsEnabled" to existingNotifications,
                     "blockedUserIds" to existingBlocked,
+                    "contactHashes" to existingContactHashes,
+                    "fcmTokens" to existingFcmTokens,
                     "createdAt" to (existingCreatedAt ?: FieldValue.serverTimestamp()),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
+                if (!existingPhoneHash.isNullOrBlank()) {
+                    payload["phoneHash"] = existingPhoneHash.take(64)
+                }
                 privateRef.set(payload).await()
             } else {
-                privateRef.update(
-                    mapOf(
-                        "email" to email.take(320),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
+                val updates = mutableMapOf<String, Any>(
+                    "email" to email.take(320),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                if (!computedPhoneHash.isNullOrBlank()) {
+                    updates["phoneHash"] = computedPhoneHash.take(64)
+                }
+                privateRef.update(updates).await()
             }
         } catch (e: CancellationException) {
             throw e
@@ -114,10 +149,6 @@ class MessagingRepository(
 
         try {
             val profileSnap = profileRef.get().await()
-            val pendingName = AuthProfilePrefill.pendingDisplayName?.takeIf { it.isNotBlank() }
-            val pendingPhoto = AuthProfilePrefill.pendingPhotoUrl?.takeIf { it.isNotBlank() }
-            AuthProfilePrefill.pendingDisplayName = null
-            AuthProfilePrefill.pendingPhotoUrl = null
 
             val hasCanonicalProfileSchema = profileSnap.exists() &&
                 profileSnap.getString("userId") == uid &&
@@ -134,7 +165,7 @@ class MessagingRepository(
                 val rawName = existingName
                     ?: pendingName
                     ?: firebaseUser.displayName?.trim()?.takeIf { it.isNotBlank() }
-                    ?: firebaseUser.phoneNumber?.takeIf { it.isNotBlank() }?.let { "Member ${it.takeLast(4)}" }
+                    ?: (pendingPhone ?: firebaseUser.phoneNumber)?.takeIf { it.isNotBlank() }?.let { "Member ${it.takeLast(4)}" }
                     ?: email.substringBefore("@").ifBlank { "Univers Member" }
                 val displayName = rawName.take(60)
                 val existingHandle = profileSnap.getString("handle")?.trim()?.lowercase()
@@ -154,8 +185,12 @@ class MessagingRepository(
                     ?: "Available"
                 val existingDiscoverable = profileSnap.getBoolean("isDiscoverable") ?: true
                 val existingCreatedAt = profileSnap.getTimestamp("createdAt")
+                val resolvedPhoneHash = computedPhoneHash
+                    ?: profileSnap.getString("phoneHash")?.takeIf { it.isNotBlank() }
+                val resolvedE2eeKey = cleanE2eeKey
+                    ?: profileSnap.getString("e2eeIdentityKey")?.takeIf { it.isNotBlank() }
 
-                val payload = mapOf<String, Any>(
+                val payload = mutableMapOf<String, Any>(
                     "userId" to uid,
                     "displayName" to displayName,
                     "handle" to sanitizedHandle,
@@ -168,6 +203,12 @@ class MessagingRepository(
                     "createdAt" to (existingCreatedAt ?: FieldValue.serverTimestamp()),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
+                if (!resolvedPhoneHash.isNullOrBlank()) {
+                    payload["phoneHash"] = resolvedPhoneHash.take(64)
+                }
+                if (!resolvedE2eeKey.isNullOrBlank()) {
+                    payload["e2eeIdentityKey"] = resolvedE2eeKey.take(256)
+                }
                 profileRef.set(payload).await()
             } else {
                 val updates = mutableMapOf<String, Any>(
@@ -180,12 +221,41 @@ class MessagingRepository(
                 if (existingPhoto.isBlank() && fallbackPhoto.isNotBlank()) {
                     updates["photoUrl"] = fallbackPhoto
                 }
+                if (!computedPhoneHash.isNullOrBlank() && profileSnap.getString("phoneHash").isNullOrBlank()) {
+                    updates["phoneHash"] = computedPhoneHash.take(64)
+                }
+                if (!cleanE2eeKey.isNullOrBlank() && profileSnap.getString("e2eeIdentityKey") != cleanE2eeKey) {
+                    updates["e2eeIdentityKey"] = cleanE2eeKey
+                }
                 profileRef.update(updates).await()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, profileRef.path, auth)
+            throw e
+        }
+    }
+
+    suspend fun syncContactHashes(hashes: List<String>): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        val sanitized = hashes
+            .map { it.trim().lowercase() }
+            .filter { it.length == 64 }
+            .distinct()
+            .take(500)
+        val docRef = db.collection(USERS_COLLECTION).document(uid)
+        try {
+            docRef.update(
+                mapOf(
+                    "contactHashes" to sanitized,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
             throw e
         }
     }
@@ -466,6 +536,7 @@ class MessagingRepository(
                     "pinnedBy" to emptyMap<String, Boolean>(),
                     "mutedBy" to emptyMap<String, Boolean>(),
                     "typingBy" to emptyMap<String, Timestamp>(),
+                    "lastReadAt" to emptyMap<String, Timestamp>(),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -515,6 +586,7 @@ class MessagingRepository(
             "pinnedBy" to emptyMap<String, Boolean>(),
             "mutedBy" to emptyMap<String, Boolean>(),
             "typingBy" to emptyMap<String, Timestamp>(),
+            "lastReadAt" to emptyMap<String, Timestamp>(),
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
@@ -533,20 +605,24 @@ class MessagingRepository(
         conversation: Conversation,
         senderProfile: UserProfile,
         text: String,
-        replyTo: Message? = null
+        replyTo: Message? = null,
+        encryptedPayload: EncryptedPayload? = null
     ): Result<Unit> = runCatching {
         val trimmed = text.trim().take(2000)
         require(trimmed.isNotEmpty()) { "Message cannot be empty." }
+        val wireText = encryptedPayload?.ciphertextBase64 ?: trimmed
+        val preview = if (encryptedPayload != null) "🔒 Encrypted message" else trimmed.take(300)
         sendMessageInternal(
             conversation = conversation,
             senderProfile = senderProfile,
             type = Message.TYPE_TEXT,
-            text = trimmed,
-            previewText = trimmed.take(300),
+            text = wireText,
+            previewText = preview,
             imageBase64 = null,
             replyTo = replyTo,
             pollQuestion = null,
-            pollOptions = null
+            pollOptions = null,
+            encryptedPayload = encryptedPayload
         )
     }
 
@@ -602,22 +678,26 @@ class MessagingRepository(
     suspend fun sendVoiceMessage(
         conversation: Conversation,
         senderProfile: UserProfile,
-        audioBase64: String,
+        audioUrl: String,
         durationSec: Int,
         replyTo: Message? = null
     ): Result<Unit> = runCatching {
-        require(audioBase64.length in 16..95_000) { "Voice message exceeds allowed limit." }
+        val cleanUrl = audioUrl.trim()
+        require(cleanUrl.startsWith("https://") && cleanUrl.length in 12..2000) {
+            "Valid Firebase Storage audio link is required."
+        }
         val safeSec = durationSec.coerceIn(1, 180)
         val formatted = "%d:%02d".format(safeSec / 60, safeSec % 60)
-        val label = "Voice message ($formatted)"
+        val preview = "🎤 Voice message ($formatted)"
         sendMessageInternal(
             conversation = conversation,
             senderProfile = senderProfile,
             type = Message.TYPE_AUDIO,
-            text = label,
-            previewText = "🎤 $label",
+            text = cleanUrl,
+            previewText = preview,
             imageBase64 = null,
-            audioBase64 = audioBase64,
+            audioUrl = cleanUrl,
+            audioBase64 = null,
             audioDurationSec = safeSec,
             replyTo = replyTo,
             pollQuestion = null,
@@ -646,18 +726,23 @@ class MessagingRepository(
                 )
             }
             Message.TYPE_AUDIO -> {
-                val audio = original.audioBase64?.takeIf { it.length >= 16 }
-                    ?: error("Voice note unavailable to forward.")
+                val remoteUrl = original.audioUrl?.trim()?.takeIf { it.startsWith("https://") && it.length >= 12 }
+                val legacyAudio = original.audioBase64?.takeIf { it.length >= 16 }
+                if (remoteUrl == null && legacyAudio == null) {
+                    error("Voice note unavailable to forward.")
+                }
                 val safeSec = original.audioDurationSec.coerceIn(1, 180)
-                val label = original.text.ifBlank { "Voice message" }
+                val formatted = "%d:%02d".format(safeSec / 60, safeSec % 60)
+                val label = remoteUrl ?: original.text.ifBlank { "Voice message ($formatted)" }
                 sendMessageInternal(
                     conversation = targetConversation,
                     senderProfile = senderProfile,
                     type = Message.TYPE_AUDIO,
                     text = label,
-                    previewText = "↪ 🎤 $label".take(300),
+                    previewText = "↪ 🎤 Voice message ($formatted)".take(300),
                     imageBase64 = null,
-                    audioBase64 = audio,
+                    audioUrl = remoteUrl,
+                    audioBase64 = if (remoteUrl == null) legacyAudio else null,
                     audioDurationSec = safeSec,
                     isForwarded = true
                 )
@@ -712,12 +797,14 @@ class MessagingRepository(
         text: String,
         previewText: String,
         imageBase64: String?,
+        audioUrl: String? = null,
         audioBase64: String? = null,
         audioDurationSec: Int? = null,
         isForwarded: Boolean = false,
         replyTo: Message? = null,
         pollQuestion: String? = null,
-        pollOptions: List<String>? = null
+        pollOptions: List<String>? = null,
+        encryptedPayload: EncryptedPayload? = null
     ) {
         val uid = requireUserId()
         require(conversation.id.isNotBlank()) { "Conversation ID is required." }
@@ -738,11 +825,22 @@ class MessagingRepository(
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        if (encryptedPayload != null) {
+            messagePayload["isEncrypted"] = true
+            messagePayload["e2eeVersion"] = encryptedPayload.e2eeVersion
+            messagePayload["ephemeralPublicKey"] = encryptedPayload.ephemeralPublicKeyBase64.take(256)
+            messagePayload["encryptionIv"] = encryptedPayload.ivBase64.take(64)
+            messagePayload["senderIdentityKey"] = encryptedPayload.senderIdentityKeyBase64.take(256)
+        }
         if (isForwarded) {
             messagePayload["isForwarded"] = true
         }
         if (!imageBase64.isNullOrBlank()) {
             messagePayload["imageBase64"] = imageBase64
+        }
+        if (!audioUrl.isNullOrBlank()) {
+            messagePayload["audioUrl"] = audioUrl.take(2000)
+            messagePayload["audioDurationSec"] = (audioDurationSec ?: 1).coerceIn(0, 180)
         }
         if (!audioBase64.isNullOrBlank()) {
             messagePayload["audioBase64"] = audioBase64
@@ -754,8 +852,11 @@ class MessagingRepository(
             val replyPreview = when (replyTo.type) {
                 Message.TYPE_IMAGE -> if (replyTo.text.isNotBlank()) "📷 ${replyTo.text}" else "📷 Photo"
                 Message.TYPE_POLL -> "📊 ${replyTo.pollQuestion ?: replyTo.text}"
-                Message.TYPE_AUDIO -> "🎤 ${replyTo.text}"
-                else -> replyTo.text
+                Message.TYPE_AUDIO -> {
+                    val sec = replyTo.audioDurationSec.coerceAtLeast(1)
+                    "🎤 Voice message (%d:%02d)".format(sec / 60, sec % 60)
+                }
+                else -> if (replyTo.isEncrypted) "🔒 Encrypted message" else replyTo.text
             }.take(160)
             messagePayload["replyToPreview"] = replyPreview
         }
@@ -777,6 +878,7 @@ class MessagingRepository(
             "lastMessageAt" to FieldValue.serverTimestamp(),
             "unreadCounts" to updatedUnread,
             "typingBy.$uid" to FieldValue.delete(),
+            "lastReadAt.$uid" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
 
@@ -796,7 +898,8 @@ class MessagingRepository(
     suspend fun editMessage(
         conversationId: String,
         messageId: String,
-        newText: String
+        newText: String,
+        encryptedPayload: EncryptedPayload? = null
     ): Result<Unit> = runCatching {
         requireUserId()
         val trimmed = newText.trim().take(2000)
@@ -805,14 +908,20 @@ class MessagingRepository(
             .document(conversationId)
             .collection(MESSAGES_SUBCOLLECTION)
             .document(messageId)
+        val updates = mutableMapOf<String, Any>(
+            "text" to (encryptedPayload?.ciphertextBase64 ?: trimmed),
+            "isEdited" to true,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (encryptedPayload != null) {
+            updates["isEncrypted"] = true
+            updates["e2eeVersion"] = encryptedPayload.e2eeVersion
+            updates["ephemeralPublicKey"] = encryptedPayload.ephemeralPublicKeyBase64.take(256)
+            updates["encryptionIv"] = encryptedPayload.ivBase64.take(64)
+            updates["senderIdentityKey"] = encryptedPayload.senderIdentityKeyBase64.take(256)
+        }
         try {
-            msgRef.update(
-                mapOf(
-                    "text" to trimmed,
-                    "isEdited" to true,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            msgRef.update(updates).await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -844,11 +953,13 @@ class MessagingRepository(
     ): Result<Unit> = runCatching {
         val uid = requireUserId()
         require(message.id.isNotBlank()) { "Message ID is required." }
-        val updatedReactions = message.reactions.toMutableMap()
-        if (updatedReactions[uid] == emoji) {
-            updatedReactions.remove(uid)
+        val cleanEmoji = emoji.trim().take(16)
+        require(cleanEmoji.isNotEmpty()) { "Reaction emoji cannot be empty." }
+
+        val fieldValue: Any = if (message.reactions[uid] == cleanEmoji) {
+            FieldValue.delete()
         } else {
-            updatedReactions[uid] = emoji
+            cleanEmoji
         }
         val msgRef = db.collection(CONVERSATIONS_COLLECTION)
             .document(conversationId)
@@ -857,7 +968,7 @@ class MessagingRepository(
         try {
             msgRef.update(
                 mapOf(
-                    "reactions" to updatedReactions,
+                    "reactions.$uid" to fieldValue,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -898,20 +1009,36 @@ class MessagingRepository(
         }
     }
 
-    suspend fun markConversationRead(conversation: Conversation): Result<Unit> = runCatching {
+    suspend fun markConversationRead(
+        conversation: Conversation,
+        sendReadReceipt: Boolean = true
+    ): Result<Unit> = runCatching {
         val uid = requireUserId()
-        if ((conversation.unreadCounts[uid] ?: 0L) == 0L) return@runCatching
+        val hasUnread = (conversation.unreadCounts[uid] ?: 0L) > 0L
+        val lastMsgMillis = conversation.lastMessageAt?.toDate()?.time ?: 0L
+        val myLastReadMillis = conversation.lastReadAt[uid]?.toDate()?.time ?: 0L
+        val needsReadReceiptStamp = sendReadReceipt &&
+            conversation.lastMessageSenderId.isNotBlank() &&
+            conversation.lastMessageSenderId != uid &&
+            lastMsgMillis > myLastReadMillis
+
+        if (!hasUnread && !needsReadReceiptStamp) return@runCatching
+
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
-        val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
-            this[uid] = 0L
+        val updates = mutableMapOf<String, Any>(
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (hasUnread) {
+            val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
+                this[uid] = 0L
+            }
+            updates["unreadCounts"] = updatedUnread
+        }
+        if (sendReadReceipt) {
+            updates["lastReadAt.$uid"] = FieldValue.serverTimestamp()
         }
         try {
-            convRef.update(
-                mapOf(
-                    "unreadCounts" to updatedUnread,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            convRef.update(updates).await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

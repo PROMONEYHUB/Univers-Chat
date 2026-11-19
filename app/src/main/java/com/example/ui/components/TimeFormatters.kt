@@ -6,6 +6,34 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+private val clockFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+}
+
+private val weekdayFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("EEE", Locale.getDefault())
+}
+
+private val shortDateFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("MMM d", Locale.getDefault())
+}
+
+private val dayHeaderThisYearFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+}
+
+private val dayHeaderFullFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+}
+
+private val scratchCalA = object : ThreadLocal<Calendar>() {
+    override fun initialValue(): Calendar = Calendar.getInstance()
+}
+
+private val scratchCalB = object : ThreadLocal<Calendar>() {
+    override fun initialValue(): Calendar = Calendar.getInstance()
+}
+
 fun formatRelativeTime(timestamp: Timestamp?): String {
     if (timestamp == null) return ""
     val date = timestamp.toDate()
@@ -18,38 +46,45 @@ fun formatRelativeTime(timestamp: Timestamp?): String {
         minutes < 1L -> "Just now"
         minutes < 60L -> "${minutes}m"
         hours < 24L -> "${hours}h"
-        days < 7L -> SimpleDateFormat("EEE", Locale.getDefault()).format(date)
-        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
+        days < 7L -> weekdayFormatter.get()!!.format(date)
+        else -> shortDateFormatter.get()!!.format(date)
     }
 }
 
 fun formatMessageClock(timestamp: Timestamp?): String {
     val date: Date = timestamp?.toDate() ?: return "Sending…"
-    return SimpleDateFormat("h:mm a", Locale.getDefault()).format(date)
+    return clockFormatter.get()!!.format(date)
 }
 
 fun formatDayHeader(timestamp: Timestamp?): String {
     val date = timestamp?.toDate() ?: return "Today"
-    val cal = Calendar.getInstance().apply { time = date }
-    val today = Calendar.getInstance()
-    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val cal = scratchCalA.get()!!.apply { timeInMillis = date.time }
+    val today = scratchCalB.get()!!.apply { timeInMillis = System.currentTimeMillis() }
 
-    return when {
-        cal.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
-            cal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) -> "Today"
-        cal.get(Calendar.YEAR) == yesterday.get(Calendar.YEAR) &&
-            cal.get(Calendar.DAY_OF_YEAR) == yesterday.get(Calendar.DAY_OF_YEAR) -> "Yesterday"
-        cal.get(Calendar.YEAR) == today.get(Calendar.YEAR) ->
-            SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(date)
-        else -> SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(date)
+    val targetYear = cal.get(Calendar.YEAR)
+    val targetDay = cal.get(Calendar.DAY_OF_YEAR)
+    val todayYear = today.get(Calendar.YEAR)
+    val todayDay = today.get(Calendar.DAY_OF_YEAR)
+
+    if (targetYear == todayYear && targetDay == todayDay) return "Today"
+
+    today.add(Calendar.DAY_OF_YEAR, -1)
+    if (targetYear == today.get(Calendar.YEAR) && targetDay == today.get(Calendar.DAY_OF_YEAR)) {
+        return "Yesterday"
+    }
+
+    return if (targetYear == todayYear) {
+        dayHeaderThisYearFormatter.get()!!.format(date)
+    } else {
+        dayHeaderFullFormatter.get()!!.format(date)
     }
 }
 
 fun isSameCalendarDay(first: Timestamp?, second: Timestamp?): Boolean {
     if (first == null && second == null) return true
     if (first == null || second == null) return false
-    val c1 = Calendar.getInstance().apply { time = first.toDate() }
-    val c2 = Calendar.getInstance().apply { time = second.toDate() }
+    val c1 = scratchCalA.get()!!.apply { timeInMillis = first.toDate().time }
+    val c2 = scratchCalB.get()!!.apply { timeInMillis = second.toDate().time }
     return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
         c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
 }

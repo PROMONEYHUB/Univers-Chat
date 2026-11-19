@@ -3,10 +3,13 @@ package com.example.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.audio.RecordedVoiceFile
+import com.example.crypto.EncryptedPayload
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
+import com.example.data.repository.ChatVoiceUploader
 import com.example.data.repository.MessagingRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -23,6 +26,17 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
+
+sealed interface VoiceUploadState {
+    data object Idle : VoiceUploadState
+    data class Uploading(val progress: Float, val durationSec: Int) : VoiceUploadState
+    data class Error(
+        val message: String,
+        val file: File,
+        val durationSec: Int
+    ) : VoiceUploadState
+}
 
 class ChatRoomViewModel(
     private val repository: MessagingRepository,
@@ -77,6 +91,12 @@ class ChatRoomViewModel(
 
     private val _errorBanner = MutableStateFlow<String?>(null)
     val errorBanner: StateFlow<String?> = _errorBanner.asStateFlow()
+
+    private val _voiceUploadState = MutableStateFlow<VoiceUploadState>(VoiceUploadState.Idle)
+    val voiceUploadState: StateFlow<VoiceUploadState> = _voiceUploadState.asStateFlow()
+
+    private var voiceUploadJob: Job? = null
+    private var pendingVoiceFile: File? = null
 
     private var isMarkedTyping = false
     private var lastTypingHeartbeatMs = 0L
@@ -144,13 +164,22 @@ class ChatRoomViewModel(
 
     override fun onCleared() {
         clearTypingStatus()
+        cancelVoiceUpload()
         super.onCleared()
     }
 
-    fun markRead(conversation: Conversation) {
-        if (conversation.unreadCountFor(currentUserId) <= 0L) return
+    fun markRead(conversation: Conversation, sendReadReceipt: Boolean = true) {
+        val hasUnread = conversation.unreadCountFor(currentUserId) > 0L
+        val lastMsgMillis = conversation.lastMessageAt?.toDate()?.time ?: 0L
+        val myLastReadMillis = conversation.lastReadAt[currentUserId]?.toDate()?.time ?: 0L
+        val needsReceipt = sendReadReceipt &&
+            conversation.lastMessageSenderId.isNotBlank() &&
+            conversation.lastMessageSenderId != currentUserId &&
+            lastMsgMillis > myLastReadMillis
+
+        if (!hasUnread && !needsReceipt) return
         viewModelScope.launch {
-            repository.markConversationRead(conversation)
+            repository.markConversationRead(conversation, sendReadReceipt)
         }
     }
 
@@ -158,6 +187,7 @@ class ChatRoomViewModel(
         conversation: Conversation,
         senderProfile: UserProfile,
         text: String,
+        encryptedPayload: EncryptedPayload? = null,
         onSuccess: () -> Unit
     ) {
         val editing = _editingMessage.value
@@ -169,9 +199,9 @@ class ChatRoomViewModel(
         viewModelScope.launch {
             _isSending.value = true
             val result = if (editing != null) {
-                repository.editMessage(conversationId, editing.id, text)
+                repository.editMessage(conversationId, editing.id, text, encryptedPayload)
             } else {
-                repository.sendTextMessage(conversation, senderProfile, text, replying)
+                repository.sendTextMessage(conversation, senderProfile, text, replying, encryptedPayload)
             }
             result.onSuccess {
                 _isSending.value = false
@@ -229,27 +259,101 @@ class ChatRoomViewModel(
         }
     }
 
-    fun sendVoiceNote(
+    fun uploadAndSendVoiceNote(
         conversation: Conversation,
         senderProfile: UserProfile,
-        audioBase64: String,
-        durationSec: Int,
-        onSuccess: () -> Unit
+        recorded: RecordedVoiceFile,
+        onSuccess: () -> Unit = {}
     ) {
         val replying = _replyingTo.value
-        viewModelScope.launch {
+        voiceUploadJob?.cancel()
+        if (pendingVoiceFile != null && pendingVoiceFile != recorded.file) {
+            runCatching { pendingVoiceFile?.delete() }
+        }
+        pendingVoiceFile = recorded.file
+        _voiceUploadState.value = VoiceUploadState.Uploading(
+            progress = 0f,
+            durationSec = recorded.durationSec
+        )
+
+        voiceUploadJob = viewModelScope.launch {
             _isSending.value = true
-            repository.sendVoiceMessage(conversation, senderProfile, audioBase64, durationSec, replying)
-                .onSuccess {
+            try {
+                val uploadResult = ChatVoiceUploader.uploadVoiceAudio(
+                    audioFile = recorded.file,
+                    senderId = currentUserId,
+                    conversationId = conversation.id,
+                    onProgress = { fraction ->
+                        _voiceUploadState.value = VoiceUploadState.Uploading(
+                            progress = fraction.coerceIn(0f, 1f),
+                            durationSec = recorded.durationSec
+                        )
+                    }
+                )
+                val downloadUrl = uploadResult.getOrElse { err ->
+                    if (err is CancellationException) throw err
                     _isSending.value = false
+                    _voiceUploadState.value = VoiceUploadState.Error(
+                        message = err.localizedMessage?.takeIf { it.isNotBlank() }
+                            ?: "Could not upload voice message",
+                        file = recorded.file,
+                        durationSec = recorded.durationSec
+                    )
+                    return@launch
+                }
+
+                repository.sendVoiceMessage(
+                    conversation = conversation,
+                    senderProfile = senderProfile,
+                    audioUrl = downloadUrl,
+                    durationSec = recorded.durationSec,
+                    replyTo = replying
+                ).onSuccess {
+                    runCatching { recorded.file.delete() }
+                    if (pendingVoiceFile == recorded.file) pendingVoiceFile = null
+                    _isSending.value = false
+                    _voiceUploadState.value = VoiceUploadState.Idle
                     _replyingTo.value = null
                     onSuccess()
-                }
-                .onFailure { err ->
+                }.onFailure { err ->
                     _isSending.value = false
-                    _errorBanner.value = err.localizedMessage ?: "Failed to send voice message"
+                    _voiceUploadState.value = VoiceUploadState.Error(
+                        message = err.localizedMessage?.takeIf { it.isNotBlank() }
+                            ?: "Failed to send voice message",
+                        file = recorded.file,
+                        durationSec = recorded.durationSec
+                    )
                 }
+            } catch (_: CancellationException) {
+                _isSending.value = false
+                _voiceUploadState.value = VoiceUploadState.Idle
+            }
         }
+    }
+
+    fun retryVoiceUpload(
+        conversation: Conversation,
+        senderProfile: UserProfile,
+        onSuccess: () -> Unit = {}
+    ) {
+        val errState = _voiceUploadState.value as? VoiceUploadState.Error ?: return
+        uploadAndSendVoiceNote(
+            conversation = conversation,
+            senderProfile = senderProfile,
+            recorded = RecordedVoiceFile(file = errState.file, durationSec = errState.durationSec),
+            onSuccess = onSuccess
+        )
+    }
+
+    fun cancelVoiceUpload() {
+        voiceUploadJob?.cancel()
+        voiceUploadJob = null
+        val errFile = (_voiceUploadState.value as? VoiceUploadState.Error)?.file
+        runCatching { errFile?.delete() }
+        runCatching { pendingVoiceFile?.delete() }
+        pendingVoiceFile = null
+        _isSending.value = false
+        _voiceUploadState.value = VoiceUploadState.Idle
     }
 
     fun pinOrUnpinMessage(

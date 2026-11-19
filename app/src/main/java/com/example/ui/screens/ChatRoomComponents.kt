@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SentimentSatisfiedAlt
 import androidx.compose.material.icons.rounded.WavingHand
@@ -58,9 +59,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -78,11 +81,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.audio.VoiceNoteRecorder
 import com.example.audio.formatDurationSec
 import com.example.ui.components.IosSearchField
 import com.example.ui.components.UniversOrbitLoader
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.rememberIosHaptics
+import com.example.ui.viewmodel.VoiceUploadState
 import com.example.ui.theme.IosIndigo
 import com.example.ui.theme.IosRed
 import com.example.ui.theme.LocalIsTelegramDark
@@ -367,6 +372,7 @@ fun IosMessageComposerBar(
     onSend: () -> Unit,
     isRecordingAudio: Boolean = false,
     recordingSeconds: Int = 0,
+    recordingAmplitude: Float = 0.2f,
     onStartVoiceRecord: () -> Unit = {},
     onCancelVoiceRecord: () -> Unit = {},
     onSendVoiceRecord: () -> Unit = {},
@@ -380,6 +386,11 @@ fun IosMessageComposerBar(
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "tg_send_scale"
     )
+    val smoothAmp by animateFloatAsState(
+        targetValue = recordingAmplitude.coerceIn(0.1f, 1f),
+        animationSpec = tween(durationMillis = 100),
+        label = "voice_rec_amp"
+    )
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -389,6 +400,16 @@ fun IosMessageComposerBar(
         Column {
             HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
             if (isRecordingAudio) {
+                val pulseTransition = rememberInfiniteTransition(label = "voice_rec_dot")
+                val dotAlpha by pulseTransition.animateFloat(
+                    initialValue = 0.35f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(550, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "voice_dot_alpha"
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -414,24 +435,45 @@ fun IosMessageComposerBar(
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(22.dp))
                             .background(IosRed.copy(alpha = 0.12f))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.FiberManualRecord,
                             contentDescription = null,
-                            tint = IosRed,
-                            modifier = Modifier.size(14.dp)
+                            tint = IosRed.copy(alpha = dotAlpha),
+                            modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Recording voice… ${formatDurationSec(recordingSeconds)} / 0:30",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "${formatDurationSec(recordingSeconds)} / ${formatDurationSec(VoiceNoteRecorder.MAX_DURATION_SEC)}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
                             color = IosRed
                         )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+                        ) {
+                            val factors = listOf(0.42f, 0.72f, 0.56f, 0.94f, 0.65f, 1.0f, 0.78f, 0.48f, 0.86f, 0.62f, 0.90f, 0.50f)
+                            factors.forEachIndexed { idx, base ->
+                                val wave = ((smoothAmp * base) + if ((recordingSeconds + idx) % 2 == 0) 0.12f else 0.04f)
+                                    .coerceIn(0.18f, 1f)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(wave)
+                                        .clip(CircleShape)
+                                        .background(IosRed.copy(alpha = 0.82f))
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
@@ -774,11 +816,11 @@ fun TypingIndicatorBubble(
 ) {
     val isDark = LocalIsTelegramDark.current
     val label = when {
-        typerNames.isEmpty() -> "typing"
-        !isGroup -> "typing"
-        typerNames.size == 1 -> "${typerNames[0]} is typing"
-        typerNames.size == 2 -> "${typerNames[0]} and ${typerNames[1]} are typing"
-        else -> "${typerNames[0]}, ${typerNames[1]} +${typerNames.size - 2} typing"
+        typerNames.isEmpty() -> "typing..."
+        !isGroup -> "typing..."
+        typerNames.size == 1 -> "${typerNames[0]} is typing..."
+        typerNames.size == 2 -> "${typerNames[0]} and ${typerNames[1]} are typing..."
+        else -> "${typerNames[0]}, ${typerNames[1]} +${typerNames.size - 2} typing..."
     }
     val bubbleShape = RoundedCornerShape(
         topStart = 18.dp,
@@ -834,3 +876,136 @@ fun TypingIndicatorBubble(
         }
     }
 }
+
+@Composable
+fun VoiceUploadStatusStrip(
+    state: VoiceUploadState,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = when (state) {
+            is VoiceUploadState.Error -> MaterialTheme.colorScheme.errorContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("voice_upload_status_strip")
+    ) {
+        Column {
+            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            when (state) {
+                is VoiceUploadState.Uploading -> {
+                    val percent = (state.progress * 100f).toInt().coerceIn(0, 100)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Mic,
+                            contentDescription = null,
+                            tint = TelegramBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (percent > 0) {
+                                    "Uploading voice (${formatDurationSec(state.durationSec)})… $percent%"
+                                } else {
+                                    "Uploading voice (${formatDurationSec(state.durationSec)})…"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (state.progress > 0f) {
+                                LinearProgressIndicator(
+                                    progress = { state.progress.coerceIn(0f, 1f) },
+                                    color = TelegramBlue,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                LinearProgressIndicator(
+                                    color = TelegramBlue,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = onCancel,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("cancel_voice_upload_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Cancel voice upload",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                is VoiceUploadState.Error -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onRetry,
+                            modifier = Modifier.testTag("retry_voice_upload_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Retry",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        IconButton(
+                            onClick = onCancel,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("dismiss_voice_upload_error_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Dismiss upload error",
+                                tint = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+                VoiceUploadState.Idle -> Unit
+            }
+        }
+    }
+}
+

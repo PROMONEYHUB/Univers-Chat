@@ -521,7 +521,25 @@ test("Participants can initiate, accept, exchange ICE candidates, end HD calls; 
     })
   );
 
-  // Both participants exchange ICE candidates; Charlie cannot
+  // Creating an ICE candidate before the parent /calls/{callId} doc exists MUST fail
+  await assertFails(
+    aliceDb
+      .collection("calls")
+      .doc("nonexistent_call_race")
+      .collection("candidates")
+      .doc("ice_early")
+      .set({
+        callId: "nonexistent_call_race",
+        senderId: ALICE_UID,
+        participantIds: [ALICE_UID, BOB_UID],
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:1 1 UDP 2122252543 192.168.1.10 54321 typ host",
+        createdAt: ts(),
+      })
+  );
+
+  // Both participants exchange ICE candidates (including order-independent participantIds); Charlie & invalid payloads fail
   await assertSucceeds(
     aliceDb
       .collection("calls")
@@ -535,6 +553,54 @@ test("Participants can initiate, accept, exchange ICE candidates, end HD calls; 
         sdpMid: "0",
         sdpMLineIndex: 0,
         candidate: "candidate:1 1 UDP 2122252543 192.168.1.10 54321 typ host",
+        createdAt: ts(),
+      })
+  );
+  await assertSucceeds(
+    bobDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .doc("ice_b1")
+      .set({
+        callId: "call_hd_1",
+        senderId: BOB_UID,
+        participantIds: [BOB_UID, ALICE_UID],
+        sdpMid: "1",
+        sdpMLineIndex: 1,
+        candidate: "candidate:2 1 UDP 1686052607 203.0.113.10 55100 typ srflx",
+        createdAt: ts(),
+      })
+  );
+  await assertFails(
+    aliceDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .doc("ice_empty")
+      .set({
+        callId: "call_hd_1",
+        senderId: ALICE_UID,
+        participantIds: [ALICE_UID, BOB_UID],
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "",
+        createdAt: ts(),
+      })
+  );
+  await assertFails(
+    aliceDb
+      .collection("calls")
+      .doc("call_hd_1")
+      .collection("candidates")
+      .doc("ice_dup_participants")
+      .set({
+        callId: "call_hd_1",
+        senderId: ALICE_UID,
+        participantIds: [ALICE_UID, ALICE_UID],
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:3 1 UDP 2122252543 192.168.1.10 54322 typ host",
         createdAt: ts(),
       })
   );
@@ -901,4 +967,357 @@ test("Owner can migrate legacy Telegram-backend /users/{uid} and /user_profiles/
     })
   );
 });
+
+// --- 10. Contacts Hashes, E2EE Public Key, Read Receipts & Encrypted Messages ---
+
+test("Owner can upload private contactHashes & publish phoneHash/e2eeIdentityKey; others cannot read private contactHashes", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const hashA = "a".repeat(64);
+  const hashB = "b".repeat(64);
+  const fakePubKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtestPublicKeyBase64Value==";
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      email: "alice@example.com",
+      phoneHash: hashA,
+      contactHashes: [hashB],
+      fcmTokens: ["fcm_token_alice_1"],
+      readReceiptsEnabled: true,
+      notificationsEnabled: true,
+      blockedUserIds: [],
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT read Alice's private contactHashes or fcmTokens
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).get());
+
+  // Alice CAN publish phoneHash + e2eeIdentityKey on her public profile
+  await assertSucceeds(
+    aliceDb.collection("user_profiles").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      displayName: "Alice",
+      handle: "alice",
+      bio: "Encrypted chat",
+      photoUrl: "",
+      statusVibe: "Building",
+      phoneHash: hashA,
+      e2eeIdentityKey: fakePubKey,
+      isOnline: true,
+      isDiscoverable: true,
+      lastSeenAt: ts(),
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Oversized contactHashes (> 500) rejected
+  const oversized = Array.from({ length: 501 }, (_, i) => String(i).padStart(64, "0"));
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      contactHashes: oversized,
+      updatedAt: ts(),
+    })
+  );
+});
+
+test("Participants can update ONLY their own lastReadAt read receipt timestamp and send/edit E2EE messages", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_e2ee_rr").set({
+      type: "direct",
+      title: "",
+      topic: "",
+      createdBy: ALICE_UID,
+      participantIds: [ALICE_UID, BOB_UID],
+      participantNames: { [ALICE_UID]: "Alice", [BOB_UID]: "Bob" },
+      participantPhotos: {},
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 1 },
+      lastReadAt: {},
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice CAN send an E2EE encrypted text message
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_e2ee_rr").collection("messages").doc("m_enc_1").set({
+      conversationId: "dm_e2ee_rr",
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      participantIds: [ALICE_UID, BOB_UID],
+      type: "text",
+      text: "base64CiphertextPayload==",
+      isEncrypted: true,
+      e2eeVersion: 1,
+      ephemeralPublicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEephemeralKey==",
+      encryptionIv: "MTIzNDU2Nzg5MDEy",
+      senderIdentityKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaliceIdKey==",
+      isEdited: false,
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice CAN edit her E2EE message with fresh ephemeral key & IV
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_e2ee_rr").collection("messages").doc("m_enc_1").update({
+      text: "updatedCiphertextPayload==",
+      isEncrypted: true,
+      e2eeVersion: 1,
+      ephemeralPublicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEephemeralKey2==",
+      encryptionIv: "OTg3NjU0MzIxMDEy",
+      senderIdentityKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaliceIdKey==",
+      isEdited: true,
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CAN stamp his own lastReadAt & reset his unread count
+  await assertSucceeds(
+    bobDb.collection("conversations").doc("dm_e2ee_rr").update({
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 0 },
+      [`lastReadAt.${BOB_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT spoof Alice's lastReadAt timestamp
+  await assertFails(
+    bobDb.collection("conversations").doc("dm_e2ee_rr").update({
+      [`lastReadAt.${ALICE_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Charlie (non-participant) CANNOT update lastReadAt
+  await assertFails(
+    charlieDb.collection("conversations").doc("dm_e2ee_rr").update({
+      [`lastReadAt.${CHARLIE_UID}`]: ts(),
+      updatedAt: ts(),
+    })
+  );
+});
+
+// ============================================================================
+// 12. Tapback Emoji Reactions (Self-only atomic toggles, switch & remove)
+// ============================================================================
+test("Participants can atomically add, switch, and remove only their own tapback emoji reaction; spoofing others fails", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
+
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_tapback").set({
+      type: "direct",
+      title: "",
+      topic: "",
+      createdBy: ALICE_UID,
+      participantIds: [ALICE_UID, BOB_UID],
+      participantNames: { [ALICE_UID]: "Alice", [BOB_UID]: "Bob" },
+      participantPhotos: {},
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 1 },
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  const msgRefAlice = aliceDb.collection("conversations").doc("dm_tapback").collection("messages").doc("m_tb_1");
+  const msgRefBob = bobDb.collection("conversations").doc("dm_tapback").collection("messages").doc("m_tb_1");
+  const msgRefCharlie = charlieDb.collection("conversations").doc("dm_tapback").collection("messages").doc("m_tb_1");
+
+  await assertSucceeds(
+    msgRefAlice.set({
+      conversationId: "dm_tapback",
+      senderId: ALICE_UID,
+      senderName: "Alice",
+      participantIds: [ALICE_UID, BOB_UID],
+      type: "text",
+      text: "Tapback test!",
+      reactions: {},
+      isEdited: false,
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  // Alice adds ❤️ reaction atomically via dotted field path
+  await assertSucceeds(
+    msgRefAlice.update({
+      [`reactions.${ALICE_UID}`]: "❤️",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob adds ❤️ reaction concurrently without overwriting Alice's reaction
+  await assertSucceeds(
+    msgRefBob.update({
+      [`reactions.${BOB_UID}`]: "❤️",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob switches his own reaction from ❤️ to 🔥
+  await assertSucceeds(
+    msgRefBob.update({
+      [`reactions.${BOB_UID}`]: "🔥",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT spoof or overwrite Alice's reaction
+  await assertFails(
+    msgRefBob.update({
+      [`reactions.${ALICE_UID}`]: "👎",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT delete Alice's reaction
+  await assertFails(
+    msgRefBob.update({
+      reactions: { [BOB_UID]: "🔥" },
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CANNOT set an empty emoji string
+  await assertFails(
+    msgRefBob.update({
+      [`reactions.${BOB_UID}`]: "",
+      updatedAt: ts(),
+    })
+  );
+
+  // Bob CAN remove his own reaction while preserving Alice's
+  const snapBeforeRemove = await msgRefBob.get();
+  const withoutBob = { ...(snapBeforeRemove.data().reactions || {}) };
+  delete withoutBob[BOB_UID];
+  await assertSucceeds(
+    msgRefBob.update({
+      reactions: withoutBob,
+      updatedAt: ts(),
+    })
+  );
+
+  // Charlie (non-participant) CANNOT react
+  await assertFails(
+    msgRefCharlie.update({
+      [`reactions.${CHARLIE_UID}`]: "👍",
+      updatedAt: ts(),
+    })
+  );
+});
+
+// --- Voice messages with Firebase Storage audioUrl ---
+
+test("Participants can send audio messages backed by Firebase Storage audioUrl; invalid URLs are rejected", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  await assertSucceeds(
+    aliceDb.collection("conversations").doc("dm_voice_url").set({
+      type: "direct",
+      title: "",
+      topic: "",
+      createdBy: ALICE_UID,
+      participantIds: [ALICE_UID, BOB_UID],
+      participantNames: { [ALICE_UID]: "Alice", [BOB_UID]: "Bob" },
+      participantPhotos: {},
+      unreadCounts: { [ALICE_UID]: 0, [BOB_UID]: 1 },
+      createdAt: ts(),
+      updatedAt: ts(),
+    })
+  );
+
+  const storageAudioUrl =
+    "https://firebasestorage.googleapis.com/v0/b/universchat.appspot.com/o/voice_messages%2Falice_123%2Fdm_voice_url%2Fnote.m4a?alt=media";
+
+  // Valid HTTPS audioUrl voice message succeeds
+  await assertSucceeds(
+    aliceDb
+      .collection("conversations")
+      .doc("dm_voice_url")
+      .collection("messages")
+      .doc("m_voice_1")
+      .set({
+        conversationId: "dm_voice_url",
+        senderId: ALICE_UID,
+        senderName: "Alice",
+        participantIds: [ALICE_UID, BOB_UID],
+        type: "audio",
+        text: storageAudioUrl,
+        audioUrl: storageAudioUrl,
+        audioDurationSec: 14,
+        reactions: {},
+        isEdited: false,
+        createdAt: ts(),
+        updatedAt: ts(),
+      })
+  );
+
+  // Bob can read the voice message
+  await assertSucceeds(
+    bobDb
+      .collection("conversations")
+      .doc("dm_voice_url")
+      .collection("messages")
+      .doc("m_voice_1")
+      .get()
+  );
+
+  // Audio message with non-HTTPS audioUrl fails
+  await assertFails(
+    aliceDb
+      .collection("conversations")
+      .doc("dm_voice_url")
+      .collection("messages")
+      .doc("m_voice_bad_scheme")
+      .set({
+        conversationId: "dm_voice_url",
+        senderId: ALICE_UID,
+        senderName: "Alice",
+        participantIds: [ALICE_UID, BOB_UID],
+        type: "audio",
+        text: "http://insecure.example.com/voice.m4a",
+        audioUrl: "http://insecure.example.com/voice.m4a",
+        audioDurationSec: 5,
+        reactions: {},
+        isEdited: false,
+        createdAt: ts(),
+        updatedAt: ts(),
+      })
+  );
+
+  // Audio message missing both audioUrl and audioBase64 fails
+  await assertFails(
+    aliceDb
+      .collection("conversations")
+      .doc("dm_voice_url")
+      .collection("messages")
+      .doc("m_voice_empty")
+      .set({
+        conversationId: "dm_voice_url",
+        senderId: ALICE_UID,
+        senderName: "Alice",
+        participantIds: [ALICE_UID, BOB_UID],
+        type: "audio",
+        text: "Voice message",
+        audioDurationSec: 5,
+        reactions: {},
+        isEdited: false,
+        createdAt: ts(),
+        updatedAt: ts(),
+      })
+  );
+});
+
+
+
 

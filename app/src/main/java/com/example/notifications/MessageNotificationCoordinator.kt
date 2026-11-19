@@ -3,8 +3,11 @@ package com.example.notifications
 import android.content.Context
 import android.util.Log
 import com.example.R
+import com.example.contacts.DeviceContactsManager
 import com.example.data.model.Conversation
 import com.example.data.model.Message
+import com.example.data.model.UserProfile
+import com.example.data.model.buildDirectConversationId
 import com.example.data.repository.MessagingRepository
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -51,6 +54,12 @@ object MessageNotificationCoordinator {
     @Volatile
     private var activeConversationId: String? = null
 
+    @Volatile
+    private var contactHashes: Set<String> = emptySet()
+
+    @Volatile
+    private var localContactNamesByHash: Map<String, String> = emptyMap()
+
     // Tracks last processed message key per conversation so initial snapshot & updates never duplicate alerts
     private val lastSeenMessageTimestamps = ConcurrentHashMap<String, Long>()
     private val lastNotifiedEventKeys = ConcurrentHashMap<String, String>()
@@ -61,6 +70,9 @@ object MessageNotificationCoordinator {
 
     private val _pendingDeepLinkConversationId = MutableStateFlow<String?>(null)
     val pendingDeepLinkConversationId: StateFlow<String?> = _pendingDeepLinkConversationId.asStateFlow()
+
+    private val _pendingDeepLinkUserId = MutableStateFlow<String?>(null)
+    val pendingDeepLinkUserId: StateFlow<String?> = _pendingDeepLinkUserId.asStateFlow()
 
     fun setAppForegroundState(inForeground: Boolean) {
         appInForeground = inForeground
@@ -78,6 +90,23 @@ object MessageNotificationCoordinator {
 
     fun consumeDeepLinkConversation() {
         _pendingDeepLinkConversationId.value = null
+    }
+
+    fun emitDeepLinkUser(userId: String?) {
+        if (!userId.isNullOrBlank()) {
+            _pendingDeepLinkUserId.value = userId
+        }
+    }
+
+    fun consumeDeepLinkUser() {
+        _pendingDeepLinkUserId.value = null
+    }
+
+    fun updateLocalContactDirectory(hashToName: Map<String, String>) {
+        localContactNamesByHash = hashToName
+        if (hashToName.isNotEmpty()) {
+            contactHashes = hashToName.keys
+        }
     }
 
     fun startObservingForUser(context: Context, userId: String) {
@@ -101,6 +130,9 @@ object MessageNotificationCoordinator {
                         if (privateUser != null) {
                             notificationsEnabled = privateUser.notificationsEnabled
                             blockedUserIds = privateUser.blockedUserIds.toSet()
+                            if (privateUser.contactHashes.isNotEmpty()) {
+                                contactHashes = privateUser.contactHashes.toSet()
+                            }
                         }
                     }
             }
@@ -110,6 +142,14 @@ object MessageNotificationCoordinator {
                     .catch { err -> Log.w(TAG, "Realtime conversation notification error", err) }
                     .collect { conversations ->
                         handleConversationSnapshot(appContext, userId, conversations)
+                    }
+            }
+
+            launch {
+                repository.observeDiscoverableProfiles()
+                    .catch { err -> Log.w(TAG, "Contact-joined profile listener error", err) }
+                    .collect { profiles ->
+                        handleContactJoinedSnapshot(appContext, userId, profiles)
                     }
             }
         }
@@ -122,6 +162,67 @@ object MessageNotificationCoordinator {
         hasSeededInitialConversations = false
         lastSeenMessageTimestamps.clear()
         lastNotifiedEventKeys.clear()
+    }
+
+    private fun handleContactJoinedSnapshot(
+        context: Context,
+        currentUserId: String,
+        profiles: List<UserProfile>
+    ) {
+        val hashes = contactHashes
+        if (hashes.isEmpty()) return
+
+        val matched = profiles.filter { profile ->
+            profile.userId != currentUserId &&
+                profile.userId !in blockedUserIds &&
+                profile.phoneHash.isNotBlank() &&
+                profile.phoneHash in hashes
+        }
+        val currentMatchedIds = matched.map { it.userId }.toSet()
+        val previouslyKnown = DeviceContactsManager.getKnownJoinedContactIds(context, currentUserId)
+
+        if (previouslyKnown == null) {
+            // Seed existing matched contacts on first sync so only future joins fire notifications
+            DeviceContactsManager.saveKnownJoinedContactIds(context, currentUserId, currentMatchedIds)
+            return
+        }
+
+        val newlyJoined = matched.filter { it.userId !in previouslyKnown }
+        if (newlyJoined.isEmpty()) return
+
+        DeviceContactsManager.saveKnownJoinedContactIds(
+            context,
+            currentUserId,
+            previouslyKnown + currentMatchedIds
+        )
+
+        if (!notificationsEnabled) return
+
+        for (contact in newlyJoined) {
+            val friendlyName = localContactNamesByHash[contact.phoneHash]?.takeIf { it.isNotBlank() }
+                ?: contact.displayName.ifBlank { "Your contact" }
+            val convId = buildDirectConversationId(currentUserId, contact.userId)
+
+            if (appInForeground) {
+                _inAppBanners.tryEmit(
+                    InAppMessageBanner(
+                        conversationId = convId,
+                        title = "$friendlyName joined Univers Chat!",
+                        senderName = friendlyName,
+                        senderPhotoUrl = contact.photoUrl.takeIf { it.isNotBlank() },
+                        previewText = "Your saved contact is now on Univers Chat. Tap to say hi!",
+                        isGroup = false,
+                        timestampMillis = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            NotificationHelper.showContactJoinedNotification(
+                context = context,
+                contactDisplayName = friendlyName,
+                joinedUserId = contact.userId
+            )
+        }
     }
 
     private fun handleConversationSnapshot(

@@ -129,7 +129,7 @@ class CallSignalingRepository(
         val uid = requireUserId()
         require(uid == callerProfile.userId) { "Authenticated user mismatch." }
         require(target.userId.isNotBlank() && target.userId != uid) { "Select another user to call." }
-        require(offerSdp.length in 10..25_000) { "Invalid WebRTC offer SDP." }
+        require(offerSdp.length in 10..60_000) { "Invalid WebRTC offer SDP." }
 
         val participantIds = listOf(uid, target.userId)
         val docRef = db.collection(CALLS_COLLECTION).document(callId)
@@ -181,7 +181,7 @@ class CallSignalingRepository(
 
     suspend fun acceptCall(callId: String, answerSdp: String): Result<Unit> = runCatching {
         requireUserId()
-        require(answerSdp.length in 10..25_000) { "Invalid WebRTC answer SDP." }
+        require(answerSdp.length in 10..60_000) { "Invalid WebRTC answer SDP." }
         val docRef = db.collection(CALLS_COLLECTION).document(callId)
         try {
             docRef.update(
@@ -264,7 +264,14 @@ class CallSignalingRepository(
         candidate: String
     ): Result<Unit> = runCatching {
         val uid = requireUserId()
-        require(participantIds.size == 2 && uid in participantIds) { "Invalid call participants." }
+        val trimmedCandidate = candidate.trim()
+        if (callId.isBlank() || trimmedCandidate.isEmpty()) {
+            return@runCatching
+        }
+        val normalizedParticipants = participantIds.distinct()
+        require(normalizedParticipants.size == 2 && uid in normalizedParticipants) {
+            "Invalid call participants."
+        }
         val candidateRef = db.collection(CALLS_COLLECTION)
             .document(callId)
             .collection(CANDIDATES_SUBCOLLECTION)
@@ -272,10 +279,10 @@ class CallSignalingRepository(
         val payload = mapOf(
             "callId" to callId,
             "senderId" to uid,
-            "participantIds" to participantIds,
+            "participantIds" to normalizedParticipants,
             "sdpMid" to sdpMid.take(64),
-            "sdpMLineIndex" to sdpMLineIndex,
-            "candidate" to candidate.take(2000),
+            "sdpMLineIndex" to sdpMLineIndex.coerceIn(0, 32),
+            "candidate" to trimmedCandidate.take(2000),
             "createdAt" to FieldValue.serverTimestamp()
         )
         try {

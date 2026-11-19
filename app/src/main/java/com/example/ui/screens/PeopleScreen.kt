@@ -24,9 +24,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,6 +76,11 @@ fun PeopleScreen(
     onViewProfile: ((UserProfile) -> Unit)? = null,
     blockedUserIds: Set<String> = emptySet(),
     connectedUserIds: Set<String> = emptySet(),
+    hasContactsPermission: Boolean = false,
+    isSyncingContacts: Boolean = false,
+    matchedContactUserIds: Set<String> = emptySet(),
+    localContactNamesByHash: Map<String, String> = emptyMap(),
+    onRequestContactsSync: () -> Unit = {},
     showBackButton: Boolean = false,
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -79,12 +88,28 @@ fun PeopleScreen(
     val isDark = LocalIsTelegramDark.current
     val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
     val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
-    val connectedContacts = remember(allPeople, currentUserId, blockedUserIds, connectedUserIds) {
+    val visibleContactIds = remember(connectedUserIds, matchedContactUserIds) {
+        connectedUserIds + matchedContactUserIds
+    }
+    val matchedPhoneContacts = remember(allPeople, currentUserId, blockedUserIds, matchedContactUserIds) {
         allPeople
-            .filter { it.userId != currentUserId && it.userId !in blockedUserIds && it.userId in connectedUserIds }
+            .filter { it.userId != currentUserId && it.userId !in blockedUserIds && it.userId in matchedContactUserIds }
             .sortedWith(compareByDescending<UserProfile> { it.isOnline }.thenBy { it.displayName.lowercase() })
     }
-    val contactCount = connectedContacts.size
+    val connectedContacts = remember(allPeople, currentUserId, blockedUserIds, connectedUserIds, matchedContactUserIds) {
+        allPeople
+            .filter {
+                it.userId != currentUserId &&
+                    it.userId !in blockedUserIds &&
+                    it.userId in connectedUserIds &&
+                    it.userId !in matchedContactUserIds
+            }
+            .sortedWith(compareByDescending<UserProfile> { it.isOnline }.thenBy { it.displayName.lowercase() })
+    }
+    val allVisibleContacts = remember(matchedPhoneContacts, connectedContacts) {
+        matchedPhoneContacts + connectedContacts
+    }
+    val contactCount = allVisibleContacts.size
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -170,11 +195,11 @@ fun PeopleScreen(
                     val trimmedQuery = searchQuery.trim()
                     val normalizedQuery = trimmedQuery.removePrefix("@")
 
-                    val connectedMatches = remember(connectedContacts, normalizedQuery) {
+                    val connectedMatches = remember(allVisibleContacts, normalizedQuery) {
                         if (normalizedQuery.isEmpty()) {
-                            connectedContacts
+                            allVisibleContacts
                         } else {
-                            connectedContacts.filter {
+                            allVisibleContacts.filter {
                                 it.displayName.contains(normalizedQuery, ignoreCase = true) ||
                                     it.handle.contains(normalizedQuery, ignoreCase = true)
                             }
@@ -186,7 +211,7 @@ fun PeopleScreen(
                         normalizedQuery,
                         currentUserId,
                         blockedUserIds,
-                        connectedUserIds
+                        visibleContactIds
                     ) {
                         if (normalizedQuery.length < 2) {
                             emptyList()
@@ -195,7 +220,7 @@ fun PeopleScreen(
                                 .filter {
                                     it.userId != currentUserId &&
                                         it.userId !in blockedUserIds &&
-                                        it.userId !in connectedUserIds
+                                        it.userId !in visibleContactIds
                                 }
                                 .filter {
                                     it.handle.contains(normalizedQuery, ignoreCase = true) ||
@@ -224,26 +249,59 @@ fun PeopleScreen(
                             }
                         }
 
+                        if (!hasContactsPermission && trimmedQuery.isEmpty()) {
+                            item(key = "sync_contacts_banner") {
+                                SyncContactsBannerCard(
+                                    isSyncing = isSyncingContacts,
+                                    onSyncClick = onRequestContactsSync
+                                )
+                            }
+                        }
+
                         if (trimmedQuery.isEmpty()) {
-                            if (connectedMatches.isEmpty()) {
+                            if (matchedPhoneContacts.isEmpty() && connectedContacts.isEmpty()) {
                                 item(key = "empty_private_contacts") {
-                                    PrivateContactsEmptyState()
+                                    PrivateContactsEmptyState(
+                                        hasContactsPermission = hasContactsPermission,
+                                        onRequestContactsSync = onRequestContactsSync
+                                    )
                                 }
                             } else {
-                                item(key = "your_contacts_header") {
-                                    ContactsSectionLabel("YOUR CONTACTS")
+                                if (matchedPhoneContacts.isNotEmpty()) {
+                                    item(key = "phone_contacts_header") {
+                                        ContactsSectionLabel("CONTACTS ON UNIVERS")
+                                    }
+                                    items(items = matchedPhoneContacts, key = { "phone_${it.userId}" }) { person ->
+                                        val savedName = person.phoneHash?.let { localContactNamesByHash[it] }
+                                        UniversContactCard(
+                                            profile = person,
+                                            phonebookLabel = savedName,
+                                            onRowClick = {
+                                                if (onViewProfile != null) onViewProfile(person)
+                                                else onMessagePerson(person)
+                                            },
+                                            onMessageClick = { onMessagePerson(person) },
+                                            onVoiceCallClick = { onCallPerson(person, false) },
+                                            onVideoCallClick = { onCallPerson(person, true) }
+                                        )
+                                    }
                                 }
-                                items(items = connectedMatches, key = { it.userId }) { person ->
-                                    UniversContactCard(
-                                        profile = person,
-                                        onRowClick = {
-                                            if (onViewProfile != null) onViewProfile(person)
-                                            else onMessagePerson(person)
-                                        },
-                                        onMessageClick = { onMessagePerson(person) },
-                                        onVoiceCallClick = { onCallPerson(person, false) },
-                                        onVideoCallClick = { onCallPerson(person, true) }
-                                    )
+                                if (connectedContacts.isNotEmpty()) {
+                                    item(key = "your_contacts_header") {
+                                        ContactsSectionLabel("YOUR CONTACTS")
+                                    }
+                                    items(items = connectedContacts, key = { it.userId }) { person ->
+                                        UniversContactCard(
+                                            profile = person,
+                                            onRowClick = {
+                                                if (onViewProfile != null) onViewProfile(person)
+                                                else onMessagePerson(person)
+                                            },
+                                            onMessageClick = { onMessagePerson(person) },
+                                            onVoiceCallClick = { onCallPerson(person, false) },
+                                            onVideoCallClick = { onCallPerson(person, true) }
+                                        )
+                                    }
                                 }
                             }
                         } else if (normalizedQuery.length < 2) {
@@ -371,11 +429,90 @@ private fun ContactsSectionLabel(text: String) {
 }
 
 @Composable
-private fun PrivateContactsEmptyState() {
+private fun SyncContactsBannerCard(
+    isSyncing: Boolean,
+    onSyncClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .border(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), shape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Contacts,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Sync Phone Contacts",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Find saved contacts & get notified when they join Univers Chat.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = onSyncClick,
+                enabled = !isSyncing,
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TelegramBlue,
+                    contentColor = Color.White
+                ),
+                modifier = Modifier
+                    .height(48.dp)
+                    .testTag("sync_contacts_cta_button")
+            ) {
+                if (isSyncing) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(16.dp)
+                    )
+                } else {
+                    Text("Sync", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivateContactsEmptyState(
+    hasContactsPermission: Boolean = false,
+    onRequestContactsSync: () -> Unit = {}
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 28.dp, vertical = 42.dp),
+            .padding(horizontal = 28.dp, vertical = 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Surface(
@@ -401,11 +538,35 @@ private fun PrivateContactsEmptyState() {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Other accounts are hidden by default. Search by exact @username or name above to find someone and start chatting.",
+            text = if (hasContactsPermission) {
+                "Contacts synced securely. We'll notify you as soon as any of your contacts join Univers Chat — or search by @username above."
+            } else {
+                "Other accounts are hidden by default. Sync your phone contacts or search by exact @username above to start chatting."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+        if (!hasContactsPermission) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(
+                onClick = onRequestContactsSync,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TelegramBlue,
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.height(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Contacts,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Allow Contacts Access", fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
@@ -460,6 +621,7 @@ private fun SavedMessagesContactRow(
 @Composable
 private fun UniversContactCard(
     profile: UserProfile,
+    phonebookLabel: String? = null,
     onRowClick: () -> Unit,
     onMessageClick: () -> Unit,
     onVoiceCallClick: () -> Unit,
@@ -518,6 +680,11 @@ private fun UniversContactCard(
                         if (profile.handle.isNotBlank() && (profile.isOnline || profile.lastSeenAt != null)) {
                             append(" · @${profile.handle}")
                         }
+                        if (!phonebookLabel.isNullOrBlank() &&
+                            !phonebookLabel.equals(profile.displayName, ignoreCase = true)
+                        ) {
+                            append(" · $phonebookLabel")
+                        }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (profile.isOnline) TelegramBlue else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -525,11 +692,22 @@ private fun UniversContactCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (profile.bio.isNotBlank()) {
+                val statusMsg = profile.statusVibe.trim()
+                val secondaryText = when {
+                    statusMsg.isNotBlank() -> statusMsg
+                    profile.bio.isNotBlank() -> profile.bio
+                    else -> ""
+                }
+                if (secondaryText.isNotBlank()) {
                     Text(
-                        text = profile.bio,
+                        text = secondaryText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (statusMsg.isNotBlank()) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontWeight = if (statusMsg.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

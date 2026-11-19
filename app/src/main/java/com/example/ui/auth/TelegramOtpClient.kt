@@ -67,6 +67,7 @@ class TelegramOtpException(
  * The Telegram Bot Token never touches the Android client; it lives strictly on the backend.
  */
 object TelegramOtpClient {
+    const val DEFAULT_BACKEND_URL = "https://univers-chat.onrender.com"
     private const val PLACEHOLDER_BACKEND = "your-backend.example.com"
     private const val PREFS_NAME = "univers_telegram_otp_session"
     private const val KEY_SESSION_JWT = "session_jwt"
@@ -74,18 +75,50 @@ object TelegramOtpClient {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(100, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
-    fun isBackendConfigured(baseUrl: String = BuildConfig.TELEGRAM_OTP_BACKEND_URL): Boolean {
+    /**
+     * Resolves the active HTTPS OTP backend URL, falling back to the deployed Render
+     * service when BuildConfig has a blank or placeholder URL.
+     */
+    fun resolveBackendUrl(rawUrl: String = BuildConfig.TELEGRAM_OTP_BACKEND_URL): String {
+        val trimmed = rawUrl.trim().trimEnd('/')
+        if (trimmed.isEmpty() || trimmed.contains(PLACEHOLDER_BACKEND, ignoreCase = true)) {
+            return DEFAULT_BACKEND_URL
+        }
+        return trimmed
+    }
+
+    fun isBackendConfigured(baseUrl: String = resolveBackendUrl()): Boolean {
         val trimmed = baseUrl.trim().trimEnd('/')
         if (trimmed.isEmpty()) return false
         if (trimmed.contains(PLACEHOLDER_BACKEND, ignoreCase = true)) return false
         return trimmed.startsWith("https://", ignoreCase = true)
+    }
+
+    /**
+     * Sends a lightweight background GET /health ping so Render's free-tier container
+     * starts spinning up before the user taps "Get OTP on Telegram Bot".
+     */
+    suspend fun warmUpBackend(baseUrl: String = resolveBackendUrl()) {
+        val resolved = resolveBackendUrl(baseUrl)
+        if (!isBackendConfigured(resolved)) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("$resolved/health")
+                    .get()
+                    .header("Accept", "application/json")
+                    .build()
+                httpClient.newCall(request).execute().close()
+            }
+        }
     }
 
     fun buildBotDeepLink(
@@ -101,16 +134,17 @@ object TelegramOtpClient {
     suspend fun requestOtp(
         phoneNumberE164: String,
         displayName: String? = null,
-        baseUrl: String = BuildConfig.TELEGRAM_OTP_BACKEND_URL
+        baseUrl: String = resolveBackendUrl()
     ): Result<TelegramOtpRequestResponse> = runCatching {
-        if (!isBackendConfigured(baseUrl)) {
+        val resolvedBase = resolveBackendUrl(baseUrl)
+        if (!isBackendConfigured(resolvedBase)) {
             throw TelegramOtpException(
-                message = "Instant Bot OTP service is not configured yet. Please switch to SMS OTP.",
+                message = "OTP server URL must be a valid HTTPS endpoint.",
                 isRetryable = false
             )
         }
 
-        val endpoint = "${baseUrl.trim().trimEnd('/')}/api/auth/telegram/request"
+        val endpoint = "$resolvedBase/api/auth/telegram/request"
         val payload = JSONObject().apply {
             put("phoneNumber", phoneNumberE164.trim())
             if (!displayName.isNullOrBlank()) {
@@ -128,16 +162,17 @@ object TelegramOtpClient {
         phoneNumberE164: String,
         otpCode: String,
         fallbackDisplayName: String? = null,
-        baseUrl: String = BuildConfig.TELEGRAM_OTP_BACKEND_URL
+        baseUrl: String = resolveBackendUrl()
     ): Result<TelegramOtpVerifyResponse> = runCatching {
-        if (!isBackendConfigured(baseUrl)) {
+        val resolvedBase = resolveBackendUrl(baseUrl)
+        if (!isBackendConfigured(resolvedBase)) {
             throw TelegramOtpException(
-                message = "Instant Bot OTP service is not configured yet.",
+                message = "Telegram Bot OTP service URL must be a valid HTTPS endpoint.",
                 isRetryable = false
             )
         }
 
-        val endpoint = "${baseUrl.trim().trimEnd('/')}/api/auth/telegram/verify"
+        val endpoint = "$resolvedBase/api/auth/telegram/verify"
         val payload = JSONObject().apply {
             put("sessionId", sessionId.trim())
             put("phoneNumber", phoneNumberE164.trim())
@@ -162,6 +197,7 @@ object TelegramOtpClient {
 
         AuthProfilePrefill.pendingDisplayName = resolvedName
         AuthProfilePrefill.pendingPhotoUrl = resolvedPhoto
+        AuthProfilePrefill.pendingPhoneNumber = parsed.user.phoneNumber.ifBlank { phoneNumberE164.trim() }
 
         val customToken = parsed.firebaseCustomToken
         if (customToken.isNullOrBlank()) {
@@ -191,20 +227,48 @@ object TelegramOtpClient {
     }.onFailure {
         AuthProfilePrefill.pendingDisplayName = null
         AuthProfilePrefill.pendingPhotoUrl = null
+        AuthProfilePrefill.pendingPhoneNumber = null
     }
 
     fun openTelegramBot(context: Context, deepLink: String): Boolean {
         val url = deepLink.trim()
         if (url.isBlank()) return false
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+
+        val nativeTgUri = buildNativeTelegramUri(url)
+        if (nativeTgUri != null) {
+            val nativeIntent = Intent(Intent.ACTION_VIEW, nativeTgUri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (runCatching { context.startActivity(nativeIntent) }.isSuccess) {
+                return true
+            }
+        }
+
+        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return try {
-            context.startActivity(intent)
+            context.startActivity(webIntent)
             true
         } catch (_: ActivityNotFoundException) {
             false
         }
+    }
+
+    private fun buildNativeTelegramUri(httpsDeepLink: String): Uri? {
+        val parsed = runCatching { Uri.parse(httpsDeepLink) }.getOrNull() ?: return null
+        val host = parsed.host?.lowercase().orEmpty()
+        if (host != "t.me" && host != "telegram.me") return null
+        val domain = parsed.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        val startParam = parsed.getQueryParameter("start")
+        val builder = Uri.Builder()
+            .scheme("tg")
+            .authority("resolve")
+            .appendQueryParameter("domain", domain)
+        if (!startParam.isNullOrBlank()) {
+            builder.appendQueryParameter("start", startParam)
+        }
+        return builder.build()
     }
 
     fun clearSavedSessionJwt(context: Context) {
@@ -241,8 +305,9 @@ object TelegramOtpClient {
                             400 -> serverError ?: "Please check your phone number and 6-digit verification code."
                             401 -> serverError ?: "Incorrect verification code. Please check your code and try again."
                             410 -> serverError ?: "This verification code has expired. Tap Resend to get a new code."
-                            429 -> serverError ?: "Too many attempts. Wait a moment or switch to SMS OTP."
-                            in 500..599 -> serverError ?: "Verification server is temporarily unavailable. Try SMS OTP."
+                            429 -> serverError ?: "Too many attempts. Please wait a moment and request a new Telegram OTP."
+                            502, 503, 504 -> serverError ?: "OTP server is waking up from sleep on Render. Wait a few seconds and tap again."
+                            in 500..599 -> serverError ?: "Telegram OTP server returned an error (HTTP ${response.code}). Please try again."
                             else -> serverError ?: "Verification failed (HTTP ${response.code})."
                         }
                         throw TelegramOtpException(
@@ -257,13 +322,13 @@ object TelegramOtpClient {
                 throw e
             } catch (e: SocketTimeoutException) {
                 throw TelegramOtpException(
-                    message = "Connection timed out reaching the verification server. Check your internet or use SMS OTP.",
+                    message = "The OTP server took too long to respond (Render may still be waking up). Tap again in a few seconds.",
                     isRetryable = true,
                     cause = e
                 )
             } catch (e: IOException) {
                 throw TelegramOtpException(
-                    message = "Network error reaching the verification server. Check your internet or use SMS OTP.",
+                    message = "Network error reaching the Telegram OTP server. Check your internet and retry.",
                     isRetryable = true,
                     cause = e
                 )

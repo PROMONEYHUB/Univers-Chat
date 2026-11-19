@@ -25,6 +25,18 @@
           "type": "array",
           "description": "Bounded list of user UIDs blocked by this user."
         },
+        "phoneHash": {
+          "type": "string",
+          "description": "Optional SHA-256 hex digest of the user's normalized phone number for private contact discovery."
+        },
+        "contactHashes": {
+          "type": "array",
+          "description": "Bounded list (max 500) of SHA-256 hex digests of the user's uploaded device contacts."
+        },
+        "fcmTokens": {
+          "type": "array",
+          "description": "Bounded list (max 20) of Firebase Cloud Messaging device tokens for push notifications."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -79,6 +91,14 @@
           "type": "string",
           "format": "date-time",
           "description": "Server timestamp of last activity."
+        },
+        "phoneHash": {
+          "type": "string",
+          "description": "Optional SHA-256 hex digest of normalized phone number for zero-PII contact matching."
+        },
+        "e2eeIdentityKey": {
+          "type": "string",
+          "description": "Base64-encoded EC P-256 public identity key used for client-side Signal-style X3DH/ECDH end-to-end encryption."
         },
         "createdAt": {
           "type": "string",
@@ -176,6 +196,10 @@
           "type": "object",
           "description": "Map of participant UID to server timestamp while actively composing a message."
         },
+        "lastReadAt": {
+          "type": "object",
+          "description": "Map of participant UID to server timestamp when they last read this conversation."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -227,9 +251,13 @@
           "type": "string",
           "description": "Optional compressed JPEG base64 thumbnail string."
         },
+        "audioUrl": {
+          "type": "string",
+          "description": "HTTPS Firebase Storage download URL for recorded voice audio (.m4a)."
+        },
         "audioBase64": {
           "type": "string",
-          "description": "Optional compressed AAC voice note encoded as Base64."
+          "description": "Optional legacy compressed AAC voice note encoded as Base64."
         },
         "audioDurationSec": {
           "type": "integer",
@@ -270,6 +298,26 @@
         "isEdited": {
           "type": "boolean",
           "description": "Whether the sender edited this message."
+        },
+        "isEncrypted": {
+          "type": "boolean",
+          "description": "Whether text payload is end-to-end encrypted using AES-256-GCM with ephemeral ECDH ratchet."
+        },
+        "e2eeVersion": {
+          "type": "integer",
+          "description": "Protocol version for E2EE payload (1 = X3DH/ECDH-P256 + HKDF-SHA256 + AES-256-GCM)."
+        },
+        "ephemeralPublicKey": {
+          "type": "string",
+          "description": "Base64-encoded per-message ephemeral EC P-256 public ratchet key."
+        },
+        "encryptionIv": {
+          "type": "string",
+          "description": "Base64-encoded 96-bit AES-GCM initialization vector."
+        },
+        "senderIdentityKey": {
+          "type": "string",
+          "description": "Base64-encoded sender EC P-256 public identity key used to establish the shared secret."
         },
         "createdAt": {
           "type": "string",

@@ -2,13 +2,8 @@ package com.example.ui.auth
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -16,7 +11,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,12 +25,15 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,15 +46,12 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.MarkEmailRead
 import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -77,14 +71,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -95,34 +83,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.credentials.CredentialManager
 import com.example.R
-import com.example.ui.components.LottieAnimationView
 import com.example.ui.components.TelegramLogoMark
-import com.example.ui.components.UniversOrbitLoader
 import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.GoogleBlue
-import com.example.ui.theme.GoogleGreen
-import com.example.ui.theme.GoogleRed
-import com.example.ui.theme.GoogleYellow
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramBlueBright
-import com.example.ui.theme.TelegramDarkBar
-import com.example.ui.theme.TelegramSteelBlue
-import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class PhoneAuthStep {
     ENTER_PHONE,
     VERIFY_OTP
-}
-
-private enum class OtpChannel {
-    TELEGRAM_BOT,
-    SMS
 }
 
 @Composable
@@ -134,12 +106,9 @@ fun AuthScreen(
     val coroutineScope = rememberCoroutineScope()
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     var authStepName by rememberSaveable { mutableStateOf(PhoneAuthStep.ENTER_PHONE.name) }
     val authStep = remember(authStepName) { PhoneAuthStep.valueOf(authStepName) }
-    var otpChannelName by rememberSaveable { mutableStateOf(OtpChannel.TELEGRAM_BOT.name) }
-    val otpChannel = remember(otpChannelName) { OtpChannel.valueOf(otpChannelName) }
     var selectedCountryIso by rememberSaveable { mutableStateOf(defaultCountryDialCode().iso) }
     val selectedCountry = remember(selectedCountryIso) {
         AllCountryCodes.firstOrNull { it.iso == selectedCountryIso } ?: defaultCountryDialCode()
@@ -149,34 +118,36 @@ fun AuthScreen(
     var phoneInput by rememberSaveable { mutableStateOf("") }
     var otpCode by rememberSaveable { mutableStateOf("") }
     var submittedPhoneE164 by rememberSaveable { mutableStateOf("") }
-    var verificationId by rememberSaveable { mutableStateOf<String?>(null) }
     var telegramSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     var telegramBotDeepLink by rememberSaveable { mutableStateOf("") }
     var telegramDeliveryModeName by rememberSaveable { mutableStateOf(TelegramOtpDeliveryMode.OPEN_BOT.name) }
     val telegramDeliveryMode = remember(telegramDeliveryModeName) {
         TelegramOtpDeliveryMode.valueOf(telegramDeliveryModeName)
     }
-    var resendToken by remember { mutableStateOf<PhoneAuthProvider.ForceResendingToken?>(null) }
     var resendSecondsRemaining by rememberSaveable { mutableIntStateOf(0) }
     var isPhoneLoading by remember { mutableStateOf(false) }
-    var isGoogleLoading by remember { mutableStateOf(false) }
+    var isServerWakingUp by remember { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    val isBusy = isPhoneLoading || isGoogleLoading
 
-    BackHandler(enabled = authStep == PhoneAuthStep.VERIFY_OTP && !isBusy) {
+    // Pre-warm the Render OTP server as soon as the sign-in screen opens
+    LaunchedEffect(Unit) {
+        TelegramOtpClient.warmUpBackend()
+    }
+
+    LaunchedEffect(isPhoneLoading) {
+        if (isPhoneLoading) {
+            isServerWakingUp = false
+            delay(5000L)
+            isServerWakingUp = true
+        } else {
+            isServerWakingUp = false
+        }
+    }
+
+    BackHandler(enabled = authStep == PhoneAuthStep.VERIFY_OTP && !isPhoneLoading) {
         errorMessage = null
         otpCode = ""
         authStepName = PhoneAuthStep.ENTER_PHONE.name
-    }
-
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = onAuthSuccess,
-            onUnauthenticated = {},
-            scope = coroutineScope
-        )
     }
 
     LaunchedEffect(authStep, resendSecondsRemaining) {
@@ -186,8 +157,7 @@ fun AuthScreen(
         }
     }
 
-    fun requestOtp(isResend: Boolean = false, overrideChannel: OtpChannel? = null) {
-        val activeChannel = overrideChannel ?: otpChannel
+    fun requestOtp(isResend: Boolean = false) {
         val formattedE164 = if (isResend && submittedPhoneE164.isNotBlank()) {
             submittedPhoneE164
         } else {
@@ -203,158 +173,66 @@ fun AuthScreen(
         isPhoneLoading = true
         submittedPhoneE164 = formattedE164
 
-        if (activeChannel == OtpChannel.TELEGRAM_BOT) {
-            coroutineScope.launch {
-                val result = TelegramOtpClient.requestOtp(
-                    phoneNumberE164 = formattedE164,
-                    displayName = displayName
-                )
-                isPhoneLoading = false
-                result.onSuccess { response ->
-                    haptics.success()
-                    telegramSessionId = response.sessionId
-                    telegramBotDeepLink = response.botDeepLink
-                    telegramDeliveryModeName = response.deliveryMode.name
-                    resendSecondsRemaining = 45
-                    if (!isResend) {
-                        otpCode = ""
-                        authStepName = PhoneAuthStep.VERIFY_OTP.name
-                    }
-                    if (response.deliveryMode == TelegramOtpDeliveryMode.OPEN_BOT &&
-                        response.botDeepLink.isNotBlank()
-                    ) {
-                        TelegramOtpClient.openTelegramBot(context, response.botDeepLink)
-                    }
-                }.onFailure { err ->
-                    errorMessage = err.localizedMessage
-                        ?: "Unable to request Instant Bot OTP. Try switching to SMS OTP."
-                }
-            }
-            return
-        }
-
-        val activity = context.findActivity()
-        if (activity == null) {
+        coroutineScope.launch {
+            val result = TelegramOtpClient.requestOtp(
+                phoneNumberE164 = formattedE164,
+                displayName = displayName
+            )
             isPhoneLoading = false
-            errorMessage = "Unable to access the active screen for verification."
-            return
-        }
-
-        startPhoneNumberVerification(
-            activity = activity,
-            phoneNumberE164 = formattedE164,
-            resendToken = if (isResend) resendToken else null,
-            onCodeSent = { vId, token ->
+            result.onSuccess { response ->
                 haptics.success()
-                verificationId = vId
-                resendToken = token
-                resendSecondsRemaining = 60
-                isPhoneLoading = false
+                telegramSessionId = response.sessionId
+                telegramBotDeepLink = response.botDeepLink
+                telegramDeliveryModeName = response.deliveryMode.name
+                resendSecondsRemaining = 45
                 if (!isResend) {
                     otpCode = ""
                     authStepName = PhoneAuthStep.VERIFY_OTP.name
                 }
-            },
-            onAutoVerified = { credential ->
-                coroutineScope.launch {
-                    val result = signInWithPhoneCredential(credential, displayName)
-                    isPhoneLoading = false
-                    result.onSuccess {
-                        haptics.success()
-                        onAuthSuccess()
-                    }.onFailure { err ->
-                        errorMessage = mapPhoneAuthException(err)
-                    }
+                if (response.deliveryMode == TelegramOtpDeliveryMode.OPEN_BOT &&
+                    response.botDeepLink.isNotBlank()
+                ) {
+                    TelegramOtpClient.openTelegramBot(context, response.botDeepLink)
                 }
-            },
-            onVerificationFailed = { msg ->
-                isPhoneLoading = false
-                errorMessage = msg
+            }.onFailure { err ->
+                errorMessage = err.localizedMessage
+                    ?: "Unable to request OTP from our Telegram bot. Please try again."
             }
-        )
+        }
     }
 
     fun submitOtp(code: String = otpCode) {
         val cleaned = code.filter { it.isDigit() }.take(6)
         if (cleaned.length != 6) {
-            errorMessage = "Enter the full 6-digit verification code."
+            errorMessage = "Enter the full 6-digit OTP sent by our Telegram bot."
+            return
+        }
+        val sessionId = telegramSessionId
+        if (sessionId.isNullOrBlank()) {
+            errorMessage = "Verification session expired. Please request a new Telegram OTP."
             return
         }
         haptics.lightTap()
         errorMessage = null
         isPhoneLoading = true
 
-        if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-            val sessionId = telegramSessionId
-            if (sessionId.isNullOrBlank()) {
-                isPhoneLoading = false
-                errorMessage = "Verification session expired. Please request a new code."
-                return
-            }
-            coroutineScope.launch {
-                val result = TelegramOtpClient.verifyOtpAndSignIn(
-                    context = context,
-                    sessionId = sessionId,
-                    phoneNumberE164 = submittedPhoneE164,
-                    otpCode = cleaned,
-                    fallbackDisplayName = displayName
-                )
-                isPhoneLoading = false
-                result.onSuccess {
-                    haptics.success()
-                    onAuthSuccess()
-                }.onFailure { err ->
-                    errorMessage = err.localizedMessage
-                        ?: "Invalid or expired verification code. Please check your bot message and try again."
-                }
-            }
-            return
-        }
-
-        val vId = verificationId
-        if (vId.isNullOrBlank()) {
-            isPhoneLoading = false
-            errorMessage = "Verification session expired. Please request a new code."
-            return
-        }
         coroutineScope.launch {
-            val result = verifyPhoneOtpAndSignIn(
-                verificationId = vId,
+            val result = TelegramOtpClient.verifyOtpAndSignIn(
+                context = context,
+                sessionId = sessionId,
+                phoneNumberE164 = submittedPhoneE164,
                 otpCode = cleaned,
-                displayName = displayName
+                fallbackDisplayName = displayName
             )
             isPhoneLoading = false
             result.onSuccess {
                 haptics.success()
                 onAuthSuccess()
             }.onFailure { err ->
-                errorMessage = mapPhoneAuthException(err)
+                errorMessage = err.localizedMessage
+                    ?: "Invalid or expired OTP. Please check your Telegram bot message and try again."
             }
         }
-    }
-
-    fun triggerGoogleSignIn() {
-        if (isBusy) return
-        haptics.lightTap()
-        errorMessage = null
-        isGoogleLoading = true
-        onGoogleSignInClicked(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {
-                isGoogleLoading = false
-                haptics.success()
-                onAuthSuccess()
-            },
-            onAuthError = { msg ->
-                isGoogleLoading = false
-                errorMessage = msg
-            },
-            scope = coroutineScope,
-            onAuthCancelled = {
-                isGoogleLoading = false
-            }
-        )
     }
 
     val ctaInteraction = remember { MutableInteractionSource() }
@@ -366,19 +244,19 @@ fun AuthScreen(
     )
 
     val formattedCandidate = formatE164PhoneNumber(selectedCountry.dialCode, phoneInput)
-    val canSendCode = !isBusy && isValidE164PhoneNumber(formattedCandidate)
-    val canVerifyOtp = !isBusy && otpCode.length == 6
+    val canSendCode = !isPhoneLoading && isValidE164PhoneNumber(formattedCandidate)
+    val canVerifyOtp = !isPhoneLoading && otpCode.length == 6
     val headerBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Clean Cosmic Header Banner
+        // Cosmic Header Banner with App Logo
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -419,10 +297,8 @@ fun AuthScreen(
                 Text(
                     text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
                         stringResource(R.string.auth_subtitle)
-                    } else if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                        "Verify $submittedPhoneE164 with your 6-digit Instant Bot code"
                     } else {
-                        "We sent a 6-digit SMS code to $submittedPhoneE164"
+                        "Check Telegram for the 6-digit OTP sent by our bot for $submittedPhoneE164"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.88f),
@@ -441,9 +317,9 @@ fun AuthScreen(
         ) {
             Text(
                 text = if (authStep == PhoneAuthStep.ENTER_PHONE) {
-                    stringResource(R.string.auth_headline)
+                    "Sign in with Telegram Bot OTP"
                 } else {
-                    "Enter verification code"
+                    "Enter your Telegram OTP"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -483,45 +359,27 @@ fun AuthScreen(
                             modifier = Modifier.padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // Segmented verification channel toggle: Telegram Bot (free & instant) vs SMS OTP
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    OtpChannelChip(
-                                        selected = otpChannel == OtpChannel.TELEGRAM_BOT,
-                                        label = stringResource(R.string.otp_channel_telegram),
-                                        icon = Icons.AutoMirrored.Rounded.Send,
-                                        enabled = !isBusy,
-                                        onClick = {
-                                            haptics.selectionTick()
-                                            errorMessage = null
-                                            otpChannelName = OtpChannel.TELEGRAM_BOT.name
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("channel_telegram_bot")
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    OtpChannelChip(
-                                        selected = otpChannel == OtpChannel.SMS,
-                                        label = stringResource(R.string.otp_channel_sms),
-                                        icon = Icons.Rounded.Sms,
-                                        enabled = !isBusy,
-                                        onClick = {
-                                            haptics.selectionTick()
-                                            errorMessage = null
-                                            otpChannelName = OtpChannel.SMS.name
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("channel_sms_otp")
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "You will receive your 6-digit login OTP on Telegram via our official bot.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 }
                             }
@@ -565,7 +423,7 @@ fun AuthScreen(
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .clip(RoundedCornerShape(12.dp))
-                                        .clickable(enabled = !isBusy) {
+                                        .clickable(enabled = !isPhoneLoading) {
                                             haptics.lightTap()
                                             showCountryPicker = true
                                         }
@@ -628,11 +486,7 @@ fun AuthScreen(
                             }
 
                             Text(
-                                text = if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                    "Receive your free 6-digit verification code instantly via our Verification Bot."
-                                } else {
-                                    "Please select your country code and enter your phone number."
-                                },
+                                text = "Enter your Telegram phone number. Our bot will send your 6-digit OTP directly on Telegram.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -655,7 +509,7 @@ fun AuthScreen(
                                         otpCode = ""
                                         authStepName = PhoneAuthStep.ENTER_PHONE.name
                                     },
-                                    enabled = !isBusy,
+                                    enabled = !isPhoneLoading,
                                     modifier = Modifier.testTag("change_phone_button")
                                 ) {
                                     Icon(
@@ -676,22 +530,14 @@ fun AuthScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                                Icons.AutoMirrored.Rounded.Send
-                                            } else {
-                                                Icons.Rounded.MarkEmailRead
-                                            },
+                                            imageVector = Icons.AutoMirrored.Rounded.Send,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Spacer(modifier = Modifier.width(5.dp))
                                         Text(
-                                            text = if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                                stringResource(R.string.telegram_otp_badge)
-                                            } else {
-                                                "6-digit SMS code"
-                                            },
+                                            text = stringResource(R.string.telegram_otp_badge),
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
@@ -700,61 +546,59 @@ fun AuthScreen(
                                 }
                             }
 
-                            if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                                    modifier = Modifier.fillMaxWidth()
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            text = if (telegramDeliveryMode == TelegramOtpDeliveryMode.SENT_DIRECTLY) {
-                                                stringResource(R.string.telegram_otp_direct_hint)
-                                            } else {
-                                                stringResource(R.string.telegram_otp_open_bot_hint)
+                                    Text(
+                                        text = if (telegramDeliveryMode == TelegramOtpDeliveryMode.SENT_DIRECTLY) {
+                                            stringResource(R.string.telegram_otp_direct_hint)
+                                        } else {
+                                            stringResource(R.string.telegram_otp_open_bot_hint)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    if (telegramBotDeepLink.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                haptics.lightTap()
+                                                val opened = TelegramOtpClient.openTelegramBot(
+                                                    context,
+                                                    telegramBotDeepLink
+                                                )
+                                                if (!opened) {
+                                                    errorMessage = "Could not open Telegram. Make sure Telegram is installed and try again."
+                                                }
                                             },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                        if (telegramBotDeepLink.isNotBlank()) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    haptics.lightTap()
-                                                    val opened = TelegramOtpClient.openTelegramBot(
-                                                        context,
-                                                        telegramBotDeepLink
-                                                    )
-                                                    if (!opened) {
-                                                        errorMessage = "Could not open the verification bot app. Tap Use SMS OTP instead."
-                                                    }
-                                                },
-                                                enabled = !isBusy,
-                                                shape = RoundedCornerShape(10.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(48.dp)
-                                                    .testTag("open_telegram_bot_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = stringResource(R.string.open_telegram_bot),
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
+                                            enabled = !isPhoneLoading,
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .testTag("open_telegram_bot_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = stringResource(R.string.open_telegram_bot),
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -762,7 +606,7 @@ fun AuthScreen(
 
                             OtpDigitBoxes(
                                 code = otpCode,
-                                enabled = !isBusy,
+                                enabled = !isPhoneLoading,
                                 onCodeChange = { updated ->
                                     val digitsOnly = updated.filter { it.isDigit() }.take(6)
                                     if (digitsOnly.length != otpCode.length) {
@@ -770,7 +614,7 @@ fun AuthScreen(
                                     }
                                     otpCode = digitsOnly
                                     errorMessage = null
-                                    if (digitsOnly.length == 6 && !isBusy) {
+                                    if (digitsOnly.length == 6 && !isPhoneLoading) {
                                         submitOtp(digitsOnly)
                                     }
                                 }
@@ -782,14 +626,14 @@ fun AuthScreen(
                             ) {
                                 if (resendSecondsRemaining > 0) {
                                     Text(
-                                        text = "Resend code in ${resendSecondsRemaining}s",
+                                        text = "Resend Telegram OTP in ${resendSecondsRemaining}s",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else {
                                     TextButton(
                                         onClick = { requestOtp(isResend = true) },
-                                        enabled = !isBusy,
+                                        enabled = !isPhoneLoading,
                                         modifier = Modifier.testTag("resend_otp_button")
                                     ) {
                                         Icon(
@@ -800,31 +644,6 @@ fun AuthScreen(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("Resend OTP", fontWeight = FontWeight.Bold)
                                     }
-                                }
-                            }
-
-                            if (otpChannel == OtpChannel.TELEGRAM_BOT) {
-                                TextButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        errorMessage = null
-                                        otpCode = ""
-                                        otpChannelName = OtpChannel.SMS.name
-                                        requestOtp(isResend = false, overrideChannel = OtpChannel.SMS)
-                                    },
-                                    enabled = !isBusy,
-                                    modifier = Modifier.testTag("switch_to_sms_otp_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Sms,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.switch_to_sms_otp),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
                                 }
                             }
                         }
@@ -895,14 +714,14 @@ fun AuthScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = when {
+                            isServerWakingUp -> stringResource(R.string.waking_up_otp_server)
                             authStep == PhoneAuthStep.VERIFY_OTP -> stringResource(R.string.verifying_code)
-                            otpChannel == OtpChannel.TELEGRAM_BOT -> stringResource(R.string.sending_telegram_otp)
-                            else -> stringResource(R.string.sending_code)
+                            else -> stringResource(R.string.sending_telegram_otp)
                         },
                         style = MaterialTheme.typography.labelLarge
                     )
                 } else {
-                    if (authStep == PhoneAuthStep.ENTER_PHONE && otpChannel == OtpChannel.TELEGRAM_BOT) {
+                    if (authStep == PhoneAuthStep.ENTER_PHONE) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.Send,
                             contentDescription = null,
@@ -911,10 +730,10 @@ fun AuthScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
                     Text(
-                        text = when {
-                            authStep == PhoneAuthStep.VERIFY_OTP -> stringResource(R.string.verify_and_continue)
-                            otpChannel == OtpChannel.TELEGRAM_BOT -> stringResource(R.string.send_telegram_otp)
-                            else -> stringResource(R.string.send_otp_code)
+                        text = if (authStep == PhoneAuthStep.VERIFY_OTP) {
+                            stringResource(R.string.verify_and_continue)
+                        } else {
+                            stringResource(R.string.send_telegram_otp)
                         },
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold
@@ -922,65 +741,14 @@ fun AuthScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
+            if (isPhoneLoading && isServerWakingUp) {
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "OR",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
+                    text = stringResource(R.string.waking_up_otp_hint),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp)
+                    textAlign = TextAlign.Center
                 )
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedButton(
-                onClick = ::triggerGoogleSignIn,
-                enabled = !isBusy,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("google_sign_in_button")
-            ) {
-                if (isGoogleLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = TelegramBlue,
-                        strokeWidth = 2.2.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.signing_in_google),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                } else {
-                    GoogleMarkIcon(modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.sign_in_with_google),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -1017,100 +785,6 @@ fun AuthScreen(
                 haptics.lightTap()
                 showCountryPicker = false
             }
-        )
-    }
-}
-
-@Composable
-private fun OtpChannelChip(
-    selected: Boolean,
-    label: String,
-    icon: ImageVector,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(9.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 10.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun GoogleMarkIcon(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val strokeWidth = size.minDimension * 0.21f
-        val inset = strokeWidth / 2f
-        val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
-        val topLeft = Offset(inset, inset)
-
-        drawArc(
-            color = GoogleRed,
-            startAngle = -145f,
-            sweepAngle = 100f,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-        )
-        drawArc(
-            color = GoogleYellow,
-            startAngle = 145f,
-            sweepAngle = 70f,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-        )
-        drawArc(
-            color = GoogleGreen,
-            startAngle = 45f,
-            sweepAngle = 100f,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-        )
-        drawArc(
-            color = GoogleBlue,
-            startAngle = -5f,
-            sweepAngle = 55f,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
-        )
-        val centerY = size.height / 2f
-        drawLine(
-            color = GoogleBlue,
-            start = Offset(size.width * 0.50f, centerY),
-            end = Offset(size.width - inset * 0.4f, centerY),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Butt
         )
     }
 }

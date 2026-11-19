@@ -14,6 +14,7 @@ import com.example.data.repository.CallSignalingRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,11 +69,28 @@ class CallViewModel(
     private val _callNotice = MutableStateFlow<String?>(null)
     val callNotice: StateFlow<String?> = _callNotice.asStateFlow()
 
+    private data class PendingLocalIceCandidate(
+        val callId: String,
+        val participantIds: List<String>,
+        val sdpMid: String,
+        val sdpMLineIndex: Int,
+        val candidate: String
+    )
+
     private var rtcEngine: WebRtcCallEngine? = null
+    private var callSetupJob: Job? = null
+    private var iceSendParentJob: Job? = null
     private var sessionObserverJob: Job? = null
     private var candidatesObserverJob: Job? = null
     private var durationTimerJob: Job? = null
     private var outgoingTimeoutJob: Job? = null
+
+    private val candidateBufferLock = Any()
+    private val pendingLocalCandidates = ArrayDeque<PendingLocalIceCandidate>()
+    @Volatile
+    private var activeCallId: String? = null
+    @Volatile
+    private var isCallSessionPublished: Boolean = false
 
     private val appliedCandidateIds = ConcurrentHashMap.newKeySet<String>()
     private var appliedRemoteAnswer = false
@@ -137,6 +155,13 @@ class CallViewModel(
 
         appliedCandidateIds.clear()
         appliedRemoteAnswer = false
+        synchronized(candidateBufferLock) {
+            pendingLocalCandidates.clear()
+            activeCallId = callId
+            isCallSessionPublished = false
+        }
+        iceSendParentJob?.cancel()
+        iceSendParentJob = SupervisorJob(viewModelScope.coroutineContext[Job])
 
         val engine = createEngine(
             callId = callId,
@@ -175,11 +200,13 @@ class CallViewModel(
             durationSeconds = 0L
         )
 
-        viewModelScope.launch {
+        callSetupJob?.cancel()
+        callSetupJob = viewModelScope.launch {
             try {
                 val offerSdp = withContext(Dispatchers.Default) {
                     engine.createOfferSdp()
                 }
+                if (activeCallId != callId) return@launch
                 val created = repository.createCallSession(
                     callId = callId,
                     callerProfile = callerProfile,
@@ -188,6 +215,13 @@ class CallViewModel(
                     qualityPreset = preset,
                     offerSdp = offerSdp
                 ).getOrThrow()
+
+                if (activeCallId != callId) {
+                    repository.endCall(callId, asMissed = true)
+                    return@launch
+                }
+
+                markCallSessionPublishedAndFlushCandidates(callId)
 
                 _callState.update {
                     it.copy(
@@ -225,6 +259,13 @@ class CallViewModel(
 
         appliedCandidateIds.clear()
         appliedRemoteAnswer = true // Caller already sent offer; we are answering
+        synchronized(candidateBufferLock) {
+            pendingLocalCandidates.clear()
+            activeCallId = callSession.id
+            isCallSessionPublished = false
+        }
+        iceSendParentJob?.cancel()
+        iceSendParentJob = SupervisorJob(viewModelScope.coroutineContext[Job])
 
         val preset = callSession.qualityEnum()
         val engine = createEngine(
@@ -249,12 +290,16 @@ class CallViewModel(
             durationSeconds = 0L
         )
 
-        viewModelScope.launch {
+        callSetupJob?.cancel()
+        callSetupJob = viewModelScope.launch {
             try {
                 val answerSdp = withContext(Dispatchers.Default) {
                     engine.acceptRemoteOfferAndCreateAnswer(offerSdp)
                 }
+                if (activeCallId != callSession.id) return@launch
                 repository.acceptCall(callSession.id, answerSdp).getOrThrow()
+                if (activeCallId != callSession.id) return@launch
+                markCallSessionPublishedAndFlushCandidates(callSession.id)
                 startSignalingObservers(callSession.id)
             } catch (e: CancellationException) {
                 throw e
@@ -277,12 +322,13 @@ class CallViewModel(
     fun hangUp() {
         val current = _callState.value
         val callId = current.session?.id
+        val wasPublished = isCallSessionPublished || !current.isOutgoing
         val wasNeverAnswered = current.isOutgoing &&
             (current.phase == CallConnectionPhase.DIALING || current.phase == CallConnectionPhase.RINGING_OUTGOING)
 
         cleanupCallResources()
 
-        if (!callId.isNullOrBlank()) {
+        if (!callId.isNullOrBlank() && wasPublished) {
             viewModelScope.launch {
                 repository.endCall(callId, asMissed = wasNeverAnswered)
             }
@@ -355,6 +401,67 @@ class CallViewModel(
         _callNotice.value = null
     }
 
+    private fun enqueueOrSendLocalIceCandidate(
+        callId: String,
+        participantIds: List<String>,
+        sdpMid: String,
+        sdpMLineIndex: Int,
+        candidate: String
+    ) {
+        val trimmedCandidate = candidate.trim()
+        if (trimmedCandidate.isEmpty()) return
+
+        val pending = PendingLocalIceCandidate(
+            callId = callId,
+            participantIds = participantIds,
+            sdpMid = sdpMid,
+            sdpMLineIndex = sdpMLineIndex,
+            candidate = trimmedCandidate
+        )
+
+        val shouldSendNow = synchronized(candidateBufferLock) {
+            if (activeCallId != callId) return
+            if (!isCallSessionPublished) {
+                if (pendingLocalCandidates.size < MAX_BUFFERED_ICE_CANDIDATES) {
+                    pendingLocalCandidates.addLast(pending)
+                }
+                false
+            } else {
+                true
+            }
+        }
+
+        if (shouldSendNow) {
+            dispatchLocalIceCandidate(pending)
+        }
+    }
+
+    private fun markCallSessionPublishedAndFlushCandidates(callId: String) {
+        val toFlush = synchronized(candidateBufferLock) {
+            if (activeCallId != callId) return
+            isCallSessionPublished = true
+            val drained = pendingLocalCandidates.toList()
+            pendingLocalCandidates.clear()
+            drained
+        }
+        toFlush.forEach { dispatchLocalIceCandidate(it) }
+    }
+
+    private fun dispatchLocalIceCandidate(item: PendingLocalIceCandidate) {
+        val parentJob = iceSendParentJob ?: return
+        if (!parentJob.isActive || activeCallId != item.callId) return
+        viewModelScope.launch(parentJob) {
+            if (activeCallId != item.callId || !isCallSessionPublished) return@launch
+            repository.sendIceCandidate(
+                callId = item.callId,
+                participantIds = item.participantIds,
+                sdpMid = item.sdpMid,
+                sdpMLineIndex = item.sdpMLineIndex,
+                candidate = item.candidate
+            )
+        }
+    }
+
     private fun createEngine(
         callId: String,
         participantIds: List<String>,
@@ -366,15 +473,13 @@ class CallViewModel(
             isVideoCall = isVideoCall,
             initialQualityPreset = preset,
             onLocalIceCandidate = { sdpMid, sdpMLineIndex, candidate ->
-                viewModelScope.launch {
-                    repository.sendIceCandidate(
-                        callId = callId,
-                        participantIds = participantIds,
-                        sdpMid = sdpMid,
-                        sdpMLineIndex = sdpMLineIndex,
-                        candidate = candidate
-                    )
-                }
+                enqueueOrSendLocalIceCandidate(
+                    callId = callId,
+                    participantIds = participantIds,
+                    sdpMid = sdpMid,
+                    sdpMLineIndex = sdpMLineIndex,
+                    candidate = candidate
+                )
             },
             onConnectionStateChanged = { peerState ->
                 viewModelScope.launch {
@@ -506,6 +611,15 @@ class CallViewModel(
     }
 
     private fun cleanupCallResources() {
+        synchronized(candidateBufferLock) {
+            activeCallId = null
+            isCallSessionPublished = false
+            pendingLocalCandidates.clear()
+        }
+        callSetupJob?.cancel()
+        callSetupJob = null
+        iceSendParentJob?.cancel()
+        iceSendParentJob = null
         outgoingTimeoutJob?.cancel()
         outgoingTimeoutJob = null
         durationTimerJob?.cancel()
@@ -531,5 +645,6 @@ class CallViewModel(
 
     private companion object {
         const val TAG = "CallViewModel"
+        const val MAX_BUFFERED_ICE_CANDIDATES = 64
     }
 }

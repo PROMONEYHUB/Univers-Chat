@@ -100,6 +100,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.contacts.DeviceContactsManager
+import com.example.crypto.E2eeKeyManager
 import com.example.data.model.CallSession
 import com.example.data.model.CallTarget
 import com.example.data.model.UiState
@@ -114,6 +116,7 @@ import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.TelegramOtpClient
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.signOut
+import com.example.ui.components.ContactsPermissionPromptDialog
 import com.example.ui.components.IosInAppNotificationBanner
 import com.example.ui.components.LocalTelegramWallpaper
 import com.example.ui.components.TelegramChatWallpaper
@@ -184,6 +187,10 @@ class MainActivity : ComponentActivity() {
         if (!convId.isNullOrBlank()) {
             MessageNotificationCoordinator.emitDeepLinkConversation(convId)
         }
+        val joinedUserId = intent?.getStringExtra(NotificationHelper.EXTRA_JOINED_USER_ID)
+        if (!joinedUserId.isNullOrBlank()) {
+            MessageNotificationCoordinator.emitDeepLinkUser(joinedUserId)
+        }
     }
 }
 
@@ -243,7 +250,8 @@ private fun AuthenticatedShell(
                 MainMessagingViewModel(
                     repository = MessagingRepository(db),
                     currentUserId = currentUserId,
-                    callSignalingRepository = CallSignalingRepository(db)
+                    callSignalingRepository = CallSignalingRepository(db),
+                    localE2eePublicKey = E2eeKeyManager.getPublicIdentityKeyBase64(app, currentUserId)
                 )
             }
         }
@@ -273,6 +281,9 @@ private fun AuthenticatedShell(
     val actionMessage by mainViewModel.actionMessage.collectAsStateWithLifecycle()
     val isBusy by mainViewModel.isBusy.collectAsStateWithLifecycle()
     val isUploadingPhoto by mainViewModel.isUploadingPhoto.collectAsStateWithLifecycle()
+    val syncedContactHashes by mainViewModel.syncedContactHashes.collectAsStateWithLifecycle()
+    val localContactNamesByHash by mainViewModel.localContactNamesByHash.collectAsStateWithLifecycle()
+    val isSyncingContacts by mainViewModel.isSyncingContacts.collectAsStateWithLifecycle()
     val incomingCall by callViewModel.incomingCall.collectAsStateWithLifecycle()
     val callState by callViewModel.callState.collectAsStateWithLifecycle()
     val callNotice by callViewModel.callNotice.collectAsStateWithLifecycle()
@@ -313,6 +324,43 @@ private fun AuthenticatedShell(
         )
     }
 
+    var hasContactsPermission by remember {
+        mutableStateOf(DeviceContactsManager.hasContactsPermission(context))
+    }
+    var showContactsPromptDialog by rememberSaveable(currentUserId) { mutableStateOf(false) }
+    val requestContactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasContactsPermission = granted || DeviceContactsManager.hasContactsPermission(context)
+        if (hasContactsPermission) {
+            mainViewModel.syncDeviceContacts(context, showFeedback = true)
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    "Contacts access skipped — you can sync anytime in Contacts or search by @username."
+                )
+            }
+        }
+    }
+    val triggerContactsSyncFlow: () -> Unit = {
+        if (DeviceContactsManager.hasContactsPermission(context)) {
+            hasContactsPermission = true
+            mainViewModel.syncDeviceContacts(context, showFeedback = true)
+        } else {
+            showContactsPromptDialog = true
+        }
+    }
+
+    LaunchedEffect(currentUserId, hasContactsPermission) {
+        if (hasContactsPermission) {
+            mainViewModel.syncDeviceContacts(context, showFeedback = false)
+        } else if (!DeviceContactsManager.hasSeenContactsPrompt(context, currentUserId)) {
+            delay(1100L)
+            DeviceContactsManager.markContactsPromptSeen(context, currentUserId)
+            showContactsPromptDialog = true
+        }
+    }
+
     DisposableEffect(lifecycleOwner, mainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -320,6 +368,7 @@ private fun AuthenticatedShell(
                     mainViewModel.setOnlineStatus(true)
                     MessageNotificationCoordinator.setAppForegroundState(true)
                     hasNotificationPermission = NotificationHelper.hasNotificationPermission(context)
+                    hasContactsPermission = DeviceContactsManager.hasContactsPermission(context)
                 }
                 Lifecycle.Event.ON_STOP -> {
                     mainViewModel.setOnlineStatus(false)
@@ -442,8 +491,27 @@ private fun AuthenticatedShell(
         allConversations.sumOf { it.unreadCountFor(currentUserId) }
     }
     val allPeople = (peopleState as? UiState.Success)?.data.orEmpty()
+    val allContactHashes = remember(syncedContactHashes, privateUser?.contactHashes) {
+        syncedContactHashes + privateUser?.contactHashes.orEmpty()
+    }
+    val matchedContactUserIds = remember(allPeople, allContactHashes, currentUserId, blockedUserIds) {
+        if (allContactHashes.isEmpty()) {
+            emptySet()
+        } else {
+            allPeople
+                .filter {
+                    it.userId != currentUserId &&
+                        it.userId !in blockedUserIds &&
+                        !it.phoneHash.isNullOrBlank() &&
+                        it.phoneHash in allContactHashes
+                }
+                .map { it.userId }
+                .toSet()
+        }
+    }
     val readReceiptsEnabled = privateUser?.readReceiptsEnabled ?: true
     val pendingDeepLinkId by MessageNotificationCoordinator.pendingDeepLinkConversationId.collectAsStateWithLifecycle()
+    val pendingDeepLinkUserId by MessageNotificationCoordinator.pendingDeepLinkUserId.collectAsStateWithLifecycle()
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -480,6 +548,14 @@ private fun AuthenticatedShell(
                     expandedSelectedChatId = targetId
                     activeTab = Routes.CHATS
                     MessageNotificationCoordinator.consumeDeepLinkConversation()
+                }
+            }
+            LaunchedEffect(pendingDeepLinkUserId) {
+                val targetUserId = pendingDeepLinkUserId
+                if (!targetUserId.isNullOrBlank()) {
+                    expandedViewingUserId = targetUserId
+                    activeTab = Routes.PEOPLE
+                    MessageNotificationCoordinator.consumeDeepLinkUser()
                 }
             }
 
@@ -654,7 +730,12 @@ private fun AuthenticatedShell(
                             },
                             onViewProfile = { person -> expandedViewingUserId = person.userId },
                             blockedUserIds = blockedUserIds,
-                            connectedUserIds = connectedUserIds
+                            connectedUserIds = connectedUserIds,
+                            hasContactsPermission = hasContactsPermission,
+                            isSyncingContacts = isSyncingContacts,
+                            matchedContactUserIds = matchedContactUserIds,
+                            localContactNamesByHash = localContactNamesByHash,
+                            onRequestContactsSync = triggerContactsSyncFlow
                         )
                     } else {
                         ProfileScreen(
@@ -700,6 +781,15 @@ private fun AuthenticatedShell(
                         launchSingleTop = true
                     }
                     MessageNotificationCoordinator.consumeDeepLinkConversation()
+                }
+            }
+            LaunchedEffect(pendingDeepLinkUserId) {
+                val targetUserId = pendingDeepLinkUserId
+                if (!targetUserId.isNullOrBlank()) {
+                    navController.navigate(Routes.userProfile(targetUserId)) {
+                        launchSingleTop = true
+                    }
+                    MessageNotificationCoordinator.consumeDeepLinkUser()
                 }
             }
             val showTopLevelNav = currentRoute in setOf(Routes.CHATS, Routes.PEOPLE, Routes.PROFILE)
@@ -748,21 +838,10 @@ private fun AuthenticatedShell(
                         NavHost(
                             navController = navController,
                             startDestination = Routes.CHATS,
-                            enterTransition = {
-                                fadeIn(tween(240, easing = FastOutSlowInEasing)) +
-                                    scaleIn(initialScale = 0.96f, animationSpec = tween(240, easing = FastOutSlowInEasing))
-                            },
-                            exitTransition = {
-                                fadeOut(tween(200, easing = FastOutSlowInEasing)) +
-                                    scaleOut(targetScale = 0.96f, animationSpec = tween(200, easing = FastOutSlowInEasing))
-                            },
-                            popEnterTransition = {
-                                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
-                                    scaleIn(initialScale = 0.95f, animationSpec = tween(240, easing = FastOutSlowInEasing))
-                            },
-                            popExitTransition = {
-                                fadeOut(tween(180, easing = FastOutSlowInEasing))
-                            },
+                            enterTransition = { fadeIn(tween(160, easing = FastOutSlowInEasing)) },
+                            exitTransition = { fadeOut(tween(140, easing = FastOutSlowInEasing)) },
+                            popEnterTransition = { fadeIn(tween(160, easing = FastOutSlowInEasing)) },
+                            popExitTransition = { fadeOut(tween(140, easing = FastOutSlowInEasing)) },
                             modifier = Modifier.weight(1f).fillMaxHeight()
                         ) {
                             composable(Routes.CHATS) {
@@ -839,6 +918,11 @@ private fun AuthenticatedShell(
                                     },
                                     blockedUserIds = blockedUserIds,
                                     connectedUserIds = connectedUserIds,
+                                    hasContactsPermission = hasContactsPermission,
+                                    isSyncingContacts = isSyncingContacts,
+                                    matchedContactUserIds = matchedContactUserIds,
+                                    localContactNamesByHash = localContactNamesByHash,
+                                    onRequestContactsSync = triggerContactsSyncFlow,
                                     showBackButton = false,
                                     onBack = { navController.popBackStack() }
                                 )
@@ -943,20 +1027,20 @@ private fun AuthenticatedShell(
                                 enterTransition = {
                                     slideIntoContainer(
                                         AnimatedContentTransitionScope.SlideDirection.Start,
-                                        tween(290, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(tween(220))
+                                        tween(220, easing = FastOutSlowInEasing)
+                                    )
                                 },
                                 exitTransition = {
-                                    scaleOut(targetScale = 0.95f, animationSpec = tween(220)) + fadeOut(tween(180))
+                                    fadeOut(tween(160))
                                 },
                                 popEnterTransition = {
-                                    scaleIn(initialScale = 0.95f, animationSpec = tween(240)) + fadeIn(tween(200))
+                                    fadeIn(tween(160))
                                 },
                                 popExitTransition = {
                                     slideOutOfContainer(
                                         AnimatedContentTransitionScope.SlideDirection.End,
-                                        tween(260, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(tween(200))
+                                        tween(210, easing = FastOutSlowInEasing)
+                                    )
                                 }
                             ) { entry ->
                                 val conversationId = entry.arguments?.getString("conversationId").orEmpty()
@@ -1086,6 +1170,20 @@ private fun AuthenticatedShell(
                     TextButton(onClick = { callPermissionMessage = null }) {
                         Text("OK")
                     }
+                }
+            )
+        }
+
+        if (showContactsPromptDialog) {
+            ContactsPermissionPromptDialog(
+                onAllowContacts = {
+                    showContactsPromptDialog = false
+                    DeviceContactsManager.markContactsPromptSeen(context, currentUserId)
+                    requestContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                },
+                onDismiss = {
+                    showContactsPromptDialog = false
+                    DeviceContactsManager.markContactsPromptSeen(context, currentUserId)
                 }
             )
         }

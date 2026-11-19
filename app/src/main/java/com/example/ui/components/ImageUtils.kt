@@ -7,6 +7,9 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.util.Base64
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.min
@@ -18,6 +21,18 @@ object ImageUtils {
     private const val MAX_RAW_BYTES = 54_000
     private const val AVATAR_MAX_DIMENSION_PX = 256
     private const val AVATAR_MAX_RAW_BYTES = 32_000
+
+    private val bitmapCache: LruCache<String, Bitmap> = object : LruCache<String, Bitmap>(16 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
+    }
+
+    private val imageBitmapCache: LruCache<String, ImageBitmap> = object : LruCache<String, ImageBitmap>(120) {}
+
+    private fun cacheKey(payload: String): String {
+        val prefix = if (payload.length > 24) payload.substring(0, 24) else payload
+        val suffix = if (payload.length > 24) payload.substring(payload.length - 24) else ""
+        return "${payload.length}:${payload.hashCode()}:$prefix:$suffix"
+    }
 
     fun encodeUriToCompressedBase64(context: Context, uri: Uri): String? {
         return try {
@@ -85,10 +100,30 @@ object ImageUtils {
         return decodeBase64ToBitmap(payload)
     }
 
+    fun decodeDataUriToImageBitmap(dataUri: String): ImageBitmap? {
+        val commaIndex = dataUri.indexOf(',')
+        if (commaIndex < 0 || commaIndex >= dataUri.lastIndex) return null
+        val payload = dataUri.substring(commaIndex + 1)
+        return decodeBase64ToImageBitmap(payload)
+    }
+
+    fun decodeBase64ToImageBitmap(base64: String): ImageBitmap? {
+        val key = cacheKey(base64)
+        imageBitmapCache.get(key)?.let { return it }
+        val bitmap = decodeBase64ToBitmap(base64) ?: return null
+        val imageBitmap = bitmap.asImageBitmap()
+        imageBitmapCache.put(key, imageBitmap)
+        return imageBitmap
+    }
+
     fun decodeBase64ToBitmap(base64: String): Bitmap? {
+        val key = cacheKey(base64)
+        bitmapCache.get(key)?.takeIf { !it.isRecycled }?.let { return it }
         return try {
             val bytes = Base64.decode(base64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also { decoded ->
+                bitmapCache.put(key, decoded)
+            }
         } catch (_: Exception) {
             null
         }

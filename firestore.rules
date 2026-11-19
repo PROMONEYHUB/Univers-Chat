@@ -36,6 +36,9 @@ service cloud.firestore {
              (!('readReceiptsEnabled' in data) || data.readReceiptsEnabled is bool) &&
              (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
              (!('blockedUserIds' in data) || data.blockedUserIds == null || (data.blockedUserIds is list && data.blockedUserIds.size() <= 100 && (data.blockedUserIds.size() == 0 || data.blockedUserIds[0] is string))) &&
+             (!('phoneHash' in data) || data.phoneHash == null || (data.phoneHash is string && data.phoneHash.size() <= 64)) &&
+             (!('contactHashes' in data) || data.contactHashes == null || (data.contactHashes is list && data.contactHashes.size() <= 500 && (data.contactHashes.size() == 0 || data.contactHashes[0] is string))) &&
+             (!('fcmTokens' in data) || data.fcmTokens == null || (data.fcmTokens is list && data.fcmTokens.size() <= 20 && (data.fcmTokens.size() == 0 || data.fcmTokens[0] is string))) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
@@ -47,6 +50,8 @@ service cloud.firestore {
              (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() <= 160)) &&
              (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 60000)) &&
              (!('statusVibe' in data) || data.statusVibe == null || (data.statusVibe is string && data.statusVibe.size() <= 60)) &&
+             (!('phoneHash' in data) || data.phoneHash == null || (data.phoneHash is string && data.phoneHash.size() <= 64)) &&
+             (!('e2eeIdentityKey' in data) || data.e2eeIdentityKey == null || (data.e2eeIdentityKey is string && data.e2eeIdentityKey.size() <= 256)) &&
              data.isOnline is bool &&
              data.isDiscoverable is bool &&
              (!('lastSeenAt' in data) || data.lastSeenAt == null || isValidTimestamp(data.lastSeenAt)) &&
@@ -77,22 +82,109 @@ service cloud.firestore {
              (!('pinnedMessagePreview' in data) || data.pinnedMessagePreview == null || (data.pinnedMessagePreview is string && data.pinnedMessagePreview.size() <= 200)) &&
              (!('pinnedMessageSenderName' in data) || data.pinnedMessageSenderName == null || (data.pinnedMessageSenderName is string && data.pinnedMessageSenderName.size() <= 60)) &&
              (!('typingBy' in data) || data.typingBy == null || (data.typingBy is map && data.typingBy.size() <= 50)) &&
+             (!('lastReadAt' in data) || data.lastReadAt == null || (data.lastReadAt is map && data.lastReadAt.size() <= 50)) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
 
-    function isValidSelfTypingPatch() {
-      return !('typingBy' in incoming().diff(existing()).affectedKeys()) ||
-             (incoming().typingBy is map &&
-              incoming().typingBy.size() <= 50 &&
+    function isValidSelfTypingPatch(changed) {
+      return !('typingBy' in changed) ||
+             (request.resource.data.typingBy is map &&
+              request.resource.data.typingBy.size() <= 50 &&
               (
-                ((!('typingBy' in existing()) || existing().typingBy == null) &&
-                 incoming().typingBy.keys().hasOnly([request.auth.uid])) ||
-                (('typingBy' in existing() && existing().typingBy != null) &&
-                 incoming().typingBy.diff(existing().typingBy).affectedKeys().hasOnly([request.auth.uid]))
+                ((!('typingBy' in resource.data) || resource.data.typingBy == null) &&
+                 request.resource.data.typingBy.keys().hasOnly([request.auth.uid])) ||
+                (('typingBy' in resource.data && resource.data.typingBy != null) &&
+                 request.resource.data.typingBy.diff(resource.data.typingBy).affectedKeys().hasOnly([request.auth.uid]))
               ) &&
-              (!(request.auth.uid in incoming().typingBy) ||
-               isValidTimestamp(incoming().typingBy[request.auth.uid])));
+              (!(request.auth.uid in request.resource.data.typingBy) ||
+               isValidTimestamp(request.resource.data.typingBy[request.auth.uid])));
+    }
+
+    function isValidSelfReadReceiptPatch(changed) {
+      return !('lastReadAt' in changed) ||
+             (request.resource.data.lastReadAt is map &&
+              request.resource.data.lastReadAt.size() <= 50 &&
+              (
+                ((!('lastReadAt' in resource.data) || resource.data.lastReadAt == null) &&
+                 request.resource.data.lastReadAt.keys().hasOnly([request.auth.uid])) ||
+                (('lastReadAt' in resource.data && resource.data.lastReadAt != null) &&
+                 request.resource.data.lastReadAt.diff(resource.data.lastReadAt).affectedKeys().hasOnly([request.auth.uid]))
+              ) &&
+              (request.auth.uid in request.resource.data.lastReadAt) &&
+              isValidTimestamp(request.resource.data.lastReadAt[request.auth.uid]));
+    }
+
+    function canUpdateConversation(changed) {
+      return (
+        // Same-participant updates (message summary, read receipt, pin/mute, pin message, typing)
+        (request.resource.data.participantIds == resource.data.participantIds &&
+         isValidSelfTypingPatch(changed) &&
+         isValidSelfReadReceiptPatch(changed) &&
+         (
+           changed.hasOnly([
+             'lastMessageText', 'lastMessageSenderId', 'lastMessageSenderName',
+             'lastMessageType', 'lastMessageAt', 'unreadCounts', 'typingBy', 'lastReadAt', 'updatedAt'
+           ]) ||
+           changed.hasOnly(['pinnedBy', 'mutedBy', 'unreadCounts', 'updatedAt']) ||
+           changed.hasOnly(['pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName', 'updatedAt'])
+         )) ||
+        // Group membership/metadata updates (edit title/topic, add members, or leave group)
+        (resource.data.type == 'group' &&
+         (
+           (request.auth.uid in request.resource.data.participantIds &&
+            changed.hasOnly([
+              'title', 'topic', 'participantIds', 'participantNames',
+              'participantPhotos', 'unreadCounts', 'updatedAt'
+            ])) ||
+           (!(request.auth.uid in request.resource.data.participantIds) &&
+            changed.hasOnly([
+              'participantIds', 'participantNames', 'participantPhotos',
+              'unreadCounts', 'updatedAt'
+            ]))
+         ))
+      );
+    }
+
+    function isValidSelfReactionPatch() {
+      return request.resource.data.reactions is map &&
+             request.resource.data.reactions.size() <= 50 &&
+             (
+               ((!('reactions' in resource.data) || resource.data.reactions == null) &&
+                request.resource.data.reactions.keys().hasOnly([request.auth.uid])) ||
+               (('reactions' in resource.data && resource.data.reactions != null) &&
+                request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid]))
+             ) &&
+             (!(request.auth.uid in request.resource.data.reactions) ||
+              (request.resource.data.reactions[request.auth.uid] is string &&
+               request.resource.data.reactions[request.auth.uid].size() >= 1 &&
+               request.resource.data.reactions[request.auth.uid].size() <= 16));
+    }
+
+    function canUpdateMessage(conversationId, changed) {
+      return (
+        // Action 1: Sender edits text message (supports E2EE re-encryption)
+        (resource.data.senderId == request.auth.uid &&
+         resource.data.type == 'text' &&
+         request.resource.data.participantIds == resource.data.participantIds &&
+         request.resource.data.isEdited == true &&
+         changed.hasOnly([
+           'text', 'isEdited', 'isEncrypted', 'e2eeVersion',
+           'ephemeralPublicKey', 'encryptionIv', 'senderIdentityKey', 'updatedAt'
+         ])) ||
+        // Action 2: Participant toggles ONLY their own tapback emoji reaction
+        (request.resource.data.participantIds == resource.data.participantIds &&
+         changed.hasOnly(['reactions', 'updatedAt']) &&
+         isValidSelfReactionPatch()) ||
+        // Action 3: Participant votes on poll
+        (resource.data.type == 'poll' &&
+         request.resource.data.participantIds == resource.data.participantIds &&
+         changed.hasOnly(['pollVotes', 'updatedAt'])) ||
+        // Action 4: Group participant syncs participantIds on membership change
+        (changed.hasOnly(['participantIds', 'updatedAt']) &&
+         exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
+         request.resource.data.participantIds == get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds)
+      );
     }
 
     function isValidMessage(data) {
@@ -105,11 +197,12 @@ service cloud.firestore {
              data.participantIds.size() <= 50 &&
              data.participantIds[0] is string &&
              data.type in ['text', 'image', 'poll', 'audio'] &&
-             data.text is string && data.text.size() <= 2000 &&
+             data.text is string && data.text.size() <= 4000 &&
              (!('imageBase64' in data) || data.imageBase64 == null || (data.imageBase64 is string && data.imageBase64.size() <= 80000)) &&
+             (!('audioUrl' in data) || data.audioUrl == null || (data.audioUrl is string && data.audioUrl.size() >= 12 && data.audioUrl.size() <= 2000 && data.audioUrl.matches('^https://.*'))) &&
              (!('audioBase64' in data) || data.audioBase64 == null || (data.audioBase64 is string && data.audioBase64.size() <= 95000)) &&
              (!('audioDurationSec' in data) || data.audioDurationSec == null || (data.audioDurationSec is int && data.audioDurationSec >= 0 && data.audioDurationSec <= 180)) &&
-             (data.type != 'audio' || (data.audioBase64 is string && data.audioBase64.size() >= 16)) &&
+             (data.type != 'audio' || (('audioUrl' in data && data.audioUrl is string && data.audioUrl.size() >= 12) || ('audioBase64' in data && data.audioBase64 is string && data.audioBase64.size() >= 16))) &&
              (!('isForwarded' in data) || data.isForwarded == null || data.isForwarded is bool) &&
              (!('replyToMessageId' in data) || data.replyToMessageId == null || (data.replyToMessageId is string && data.replyToMessageId.size() <= 128)) &&
              (!('replyToSenderName' in data) || data.replyToSenderName == null || (data.replyToSenderName is string && data.replyToSenderName.size() <= 60)) &&
@@ -118,6 +211,11 @@ service cloud.firestore {
              (!('pollQuestion' in data) || data.pollQuestion == null || (data.pollQuestion is string && data.pollQuestion.size() <= 200)) &&
              (!('pollOptions' in data) || data.pollOptions == null || (data.pollOptions is list && data.pollOptions.size() <= 6 && (data.pollOptions.size() == 0 || data.pollOptions[0] is string))) &&
              (!('pollVotes' in data) || data.pollVotes == null || (data.pollVotes is map && data.pollVotes.size() <= 50)) &&
+             (!('isEncrypted' in data) || data.isEncrypted == null || data.isEncrypted is bool) &&
+             (!('e2eeVersion' in data) || data.e2eeVersion == null || (data.e2eeVersion is int && data.e2eeVersion >= 0 && data.e2eeVersion <= 10)) &&
+             (!('ephemeralPublicKey' in data) || data.ephemeralPublicKey == null || (data.ephemeralPublicKey is string && data.ephemeralPublicKey.size() <= 256)) &&
+             (!('encryptionIv' in data) || data.encryptionIv == null || (data.encryptionIv is string && data.encryptionIv.size() <= 64)) &&
+             (!('senderIdentityKey' in data) || data.senderIdentityKey == null || (data.senderIdentityKey is string && data.senderIdentityKey.size() <= 256)) &&
              data.isEdited is bool &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
@@ -140,8 +238,8 @@ service cloud.firestore {
              data.callType in ['voice', 'video'] &&
              data.qualityPreset in ['HD_720P', 'FHD_1080P', 'HD_VOICE'] &&
              data.status in ['ringing', 'accepted', 'declined', 'ended', 'missed'] &&
-             (!('offerSdp' in data) || data.offerSdp == null || (data.offerSdp is string && data.offerSdp.size() <= 25000)) &&
-             (!('answerSdp' in data) || data.answerSdp == null || (data.answerSdp is string && data.answerSdp.size() <= 25000)) &&
+             (!('offerSdp' in data) || data.offerSdp == null || (data.offerSdp is string && data.offerSdp.size() <= 60000)) &&
+             (!('answerSdp' in data) || data.answerSdp == null || (data.answerSdp is string && data.answerSdp.size() <= 60000)) &&
              (!('endedBy' in data) || data.endedBy == null || (data.endedBy is string && isValidId(data.endedBy))) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
@@ -154,10 +252,17 @@ service cloud.firestore {
              data.participantIds.size() == 2 &&
              data.participantIds[0] is string &&
              data.participantIds[1] is string &&
+             data.participantIds[0] != data.participantIds[1] &&
              data.sdpMid is string && data.sdpMid.size() <= 64 &&
              data.sdpMLineIndex is int && data.sdpMLineIndex >= 0 && data.sdpMLineIndex <= 32 &&
              data.candidate is string && data.candidate.size() >= 1 && data.candidate.size() <= 2000 &&
              isValidTimestamp(data.createdAt);
+    }
+
+    function matchesParentCallParticipants(callId, participants) {
+      let callPath = /databases/$(database)/documents/calls/$(callId);
+      return exists(callPath) &&
+             participants.toSet() == get(callPath).data.participantIds.toSet();
     }
 
     // --- Collection 1: Private User Account (PII Isolated) ---
@@ -170,7 +275,7 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll(['userId', 'email', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'phoneHash', 'contactHashes', 'fcmTokens', 'createdAt', 'updatedAt']) &&
                        isValidPrivateUser(incoming());
 
       allow update: if isSignedIn() &&
@@ -184,13 +289,13 @@ service cloud.firestore {
                            'createdAt' in existing() &&
                            incoming().userId == existing().userId &&
                            incoming().createdAt == existing().createdAt &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'updatedAt'])
+                           incoming().diff(existing()).affectedKeys().hasOnly(['email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'phoneHash', 'contactHashes', 'fcmTokens', 'updatedAt'])
                          ) ||
                          (
                            (!('userId' in existing()) || !('email' in existing()) || !('createdAt' in existing())) &&
                            incoming().userId == request.auth.uid &&
                            incoming().keys().hasAll(['userId', 'email', 'createdAt', 'updatedAt']) &&
-                           incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'createdAt', 'updatedAt'])
+                           incoming().keys().hasOnly(['userId', 'email', 'readReceiptsEnabled', 'notificationsEnabled', 'blockedUserIds', 'phoneHash', 'contactHashes', 'fcmTokens', 'createdAt', 'updatedAt'])
                          )
                        );
 
@@ -209,7 +314,7 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll(['userId', 'displayName', 'handle', 'isOnline', 'isDiscoverable', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'phoneHash', 'e2eeIdentityKey', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'createdAt', 'updatedAt']) &&
                        isValidUserProfile(incoming());
 
       allow update: if isSignedIn() &&
@@ -224,13 +329,13 @@ service cloud.firestore {
                            'createdAt' in existing() &&
                            incoming().userId == existing().userId &&
                            incoming().createdAt == existing().createdAt &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'updatedAt'])
+                           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'phoneHash', 'e2eeIdentityKey', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'updatedAt'])
                          ) ||
                          (
                            (!('userId' in existing()) || !('handle' in existing()) || !('isDiscoverable' in existing()) || !('createdAt' in existing())) &&
                            incoming().userId == request.auth.uid &&
                            incoming().keys().hasAll(['userId', 'displayName', 'handle', 'isOnline', 'isDiscoverable', 'createdAt', 'updatedAt']) &&
-                           incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'createdAt', 'updatedAt'])
+                           incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'bio', 'photoUrl', 'statusVibe', 'phoneHash', 'e2eeIdentityKey', 'isOnline', 'isDiscoverable', 'lastSeenAt', 'createdAt', 'updatedAt'])
                          )
                        );
 
@@ -256,57 +361,18 @@ service cloud.firestore {
                          'lastMessageSenderId', 'lastMessageSenderName', 'lastMessageType',
                          'lastMessageAt', 'unreadCounts', 'pinnedBy', 'mutedBy',
                          'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName',
-                         'typingBy', 'createdAt', 'updatedAt'
+                         'typingBy', 'lastReadAt', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidConversation(incoming());
 
       allow update: if isSignedIn() &&
                        isValidId(conversationId) &&
-                       request.auth.uid in existing().participantIds &&
-                       isValidConversation(incoming()) &&
-                       incoming().createdBy == existing().createdBy &&
-                       incoming().createdAt == existing().createdAt &&
-                       incoming().type == existing().type &&
-                       (
-                         // Action 1: Participant sends message & updates summary + unread counts (and optionally clears own typing state)
-                         (incoming().participantIds == existing().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'lastMessageText', 'lastMessageSenderId', 'lastMessageSenderName',
-                            'lastMessageType', 'lastMessageAt', 'unreadCounts', 'typingBy', 'updatedAt'
-                          ]) &&
-                          isValidSelfTypingPatch()) ||
-                         // Action 2: Participant marks conversation read
-                         (incoming().participantIds == existing().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly(['unreadCounts', 'updatedAt'])) ||
-                         // Action 3: Group member updates group title, topic, or adds participants
-                         (existing().type == 'group' &&
-                          request.auth.uid in incoming().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'title', 'topic', 'participantIds', 'participantNames',
-                            'participantPhotos', 'unreadCounts', 'updatedAt'
-                          ])) ||
-                         // Action 4: Group member leaves group
-                         (existing().type == 'group' &&
-                          !(request.auth.uid in incoming().participantIds) &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'participantIds', 'participantNames', 'participantPhotos',
-                            'unreadCounts', 'updatedAt'
-                          ])) ||
-                         // Action 5: Participant pins or mutes thread or adjusts unread state
-                         (incoming().participantIds == existing().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'pinnedBy', 'mutedBy', 'unreadCounts', 'updatedAt'
-                          ])) ||
-                         // Action 6: Participant pins or unpins a message in thread
-                         (incoming().participantIds == existing().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'pinnedMessageId', 'pinnedMessagePreview', 'pinnedMessageSenderName', 'updatedAt'
-                          ])) ||
-                         // Action 7: Participant updates or clears their own typing indicator timestamp
-                         (incoming().participantIds == existing().participantIds &&
-                          incoming().diff(existing()).affectedKeys().hasOnly(['typingBy', 'updatedAt']) &&
-                          isValidSelfTypingPatch())
-                       );
+                       request.auth.uid in resource.data.participantIds &&
+                       request.resource.data.createdBy == resource.data.createdBy &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       request.resource.data.type == resource.data.type &&
+                       isValidConversation(request.resource.data) &&
+                       canUpdateConversation(request.resource.data.diff(resource.data).affectedKeys());
 
       allow delete: if isSignedIn() && isValidId(conversationId) &&
                        (existing().createdBy == request.auth.uid ||
@@ -333,9 +399,10 @@ service cloud.firestore {
                          incoming().keys().hasOnly([
                            'conversationId', 'senderId', 'senderName', 'senderPhotoUrl',
                            'participantIds', 'type', 'text', 'imageBase64',
-                           'audioBase64', 'audioDurationSec', 'isForwarded',
+                           'audioUrl', 'audioBase64', 'audioDurationSec', 'isForwarded',
                            'replyToMessageId', 'replyToSenderName', 'replyToPreview',
                            'reactions', 'pollQuestion', 'pollOptions', 'pollVotes',
+                           'isEncrypted', 'e2eeVersion', 'ephemeralPublicKey', 'encryptionIv', 'senderIdentityKey',
                            'isEdited', 'createdAt', 'updatedAt'
                          ]) &&
                          isValidMessage(incoming()) &&
@@ -346,31 +413,13 @@ service cloud.firestore {
         allow update: if isSignedIn() &&
                          isValidId(conversationId) &&
                          isValidId(messageId) &&
-                         request.auth.uid in existing().participantIds &&
-                         isValidMessage(incoming()) &&
-                         incoming().conversationId == existing().conversationId &&
-                         incoming().senderId == existing().senderId &&
-                         incoming().createdAt == existing().createdAt &&
-                         incoming().type == existing().type &&
-                         (
-                           // Action 1: Sender edits text message
-                           (existing().senderId == request.auth.uid &&
-                            existing().type == 'text' &&
-                            incoming().participantIds == existing().participantIds &&
-                            incoming().isEdited == true &&
-                            incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isEdited', 'updatedAt'])) ||
-                           // Action 2: Any participant toggles emoji reaction
-                           (incoming().participantIds == existing().participantIds &&
-                            incoming().diff(existing()).affectedKeys().hasOnly(['reactions', 'updatedAt'])) ||
-                           // Action 3: Any participant votes on poll
-                           (existing().type == 'poll' &&
-                            incoming().participantIds == existing().participantIds &&
-                            incoming().diff(existing()).affectedKeys().hasOnly(['pollVotes', 'updatedAt'])) ||
-                           // Action 4: Group participant syncs participantIds when group membership changes
-                           (incoming().diff(existing()).affectedKeys().hasOnly(['participantIds', 'updatedAt']) &&
-                            exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
-                            incoming().participantIds == get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds)
-                         );
+                         request.auth.uid in resource.data.participantIds &&
+                         request.resource.data.conversationId == resource.data.conversationId &&
+                         request.resource.data.senderId == resource.data.senderId &&
+                         request.resource.data.createdAt == resource.data.createdAt &&
+                         request.resource.data.type == resource.data.type &&
+                         isValidMessage(request.resource.data) &&
+                         canUpdateMessage(conversationId, request.resource.data.diff(resource.data).affectedKeys());
 
         allow delete: if isSignedIn() && isValidId(conversationId) && isValidId(messageId) &&
                          existing().senderId == request.auth.uid;
@@ -466,8 +515,7 @@ service cloud.firestore {
                            'sdpMid', 'sdpMLineIndex', 'candidate', 'createdAt'
                          ]) &&
                          isValidIceCandidate(incoming()) &&
-                         exists(/databases/$(database)/documents/calls/$(callId)) &&
-                         incoming().participantIds == get(/databases/$(database)/documents/calls/$(callId)).data.participantIds;
+                         matchesParentCallParticipants(callId, incoming().participantIds);
 
         allow update, delete: if false;
       }

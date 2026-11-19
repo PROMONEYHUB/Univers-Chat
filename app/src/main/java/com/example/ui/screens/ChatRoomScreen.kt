@@ -27,13 +27,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,11 +45,14 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,9 +69,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -82,13 +89,17 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.audio.VoiceNotePlayer
 import com.example.audio.VoiceNoteRecorder
+import com.example.crypto.E2eeKeyManager
+import com.example.crypto.SignalProtocolEngine
 import com.example.data.model.CallTarget
 import com.example.data.model.Conversation
 import com.example.data.model.Message
@@ -108,11 +119,26 @@ import com.example.ui.theme.TelegramBlue
 import com.example.ui.theme.TelegramDarkBar
 import com.example.ui.theme.TelegramSteelBlue
 import com.example.ui.viewmodel.ChatRoomViewModel
+import com.example.ui.viewmodel.VoiceUploadState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+
+@Immutable
+private data class PreparedChatRoomRow(
+    val key: String,
+    val contentType: String,
+    val originalMessage: Message,
+    val displayMessage: Message,
+    val isOwnMessage: Boolean,
+    val isRead: Boolean,
+    val showDayHeader: Boolean,
+    val dayHeaderLabel: String,
+    val isFirstInCluster: Boolean,
+    val isLastInCluster: Boolean
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,14 +171,17 @@ fun ChatRoomScreen(
     val editingMessage by viewModel.editingMessage.collectAsStateWithLifecycle()
     val isSending by viewModel.isSending.collectAsStateWithLifecycle()
     val errorBanner by viewModel.errorBanner.collectAsStateWithLifecycle()
+    val voiceUploadState by viewModel.voiceUploadState.collectAsStateWithLifecycle()
 
     var draftText by rememberSaveable(viewModel.conversationId) { mutableStateOf("") }
     var selectedMessageForActions by remember { mutableStateOf<Message?>(null) }
+    var reactionDetailsMessageId by remember { mutableStateOf<String?>(null) }
     var messageToForward by remember { mutableStateOf<Message?>(null) }
     var lightboxState by remember { mutableStateOf<Triple<Bitmap, String, String>?>(null) }
     var showPollDialog by remember { mutableStateOf(false) }
     var showGroupInfoDialog by remember { mutableStateOf(false) }
     var showDirectInfoDialog by remember { mutableStateOf(false) }
+    var showE2eeSafetyDialog by remember { mutableStateOf(false) }
     var showSearchBar by rememberSaveable(viewModel.conversationId) { mutableStateOf(false) }
     var inChatSearchQuery by rememberSaveable(viewModel.conversationId) { mutableStateOf("") }
     var isTrayOpen by remember { mutableStateOf(false) }
@@ -164,6 +193,14 @@ fun ChatRoomScreen(
     val voicePlaybackState by voicePlayer.state.collectAsStateWithLifecycle()
     var isRecordingAudio by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
+    var recordingAmplitude by remember { mutableFloatStateOf(0.18f) }
+
+    LaunchedEffect(voicePlaybackState.errorMessage) {
+        val err = voicePlaybackState.errorMessage
+        if (!err.isNullOrBlank()) {
+            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     DisposableEffect(viewModel.conversationId) {
         onDispose {
@@ -175,13 +212,48 @@ fun ChatRoomScreen(
 
     val conversation = (conversationState as? UiState.Success)?.data
     val messages = (messagesState as? UiState.Success)?.data.orEmpty()
-    val photoMessages = remember(messages) {
-        messages.filter { it.type == Message.TYPE_IMAGE && !it.imageBase64.isNullOrBlank() }
-    }
     val peopleMap = remember(allPeople) { allPeople.associateBy { it.userId } }
-    val filteredMessages = remember(messages, showSearchBar, inChatSearchQuery) {
-        if (!showSearchBar || inChatSearchQuery.isBlank()) messages
-        else messages.filter { msg ->
+    val otherId = conversation?.otherParticipantId(viewModel.currentUserId)
+    val otherProfile = remember(otherId, allPeople) {
+        otherId?.let { id -> allPeople.firstOrNull { it.userId == id } }
+    }
+    val isGroup = conversation?.type == Conversation.TYPE_GROUP
+    val isSelfChat = !isGroup && (conversation?.participantIds?.distinct()?.size ?: 0) <= 1
+    val peerE2eeKey = if (!isGroup) {
+        (if (isSelfChat) currentUserProfile?.e2eeIdentityKey else otherProfile?.e2eeIdentityKey)
+            ?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
+    val isE2eeActive = !isGroup && !peerE2eeKey.isNullOrBlank()
+
+    val decryptedMessages = remember(messages, peerE2eeKey, viewModel.currentUserId, conversation?.id) {
+        val convId = conversation?.id ?: return@remember messages
+        messages.map { msg ->
+            if (!msg.isEncrypted) {
+                msg
+            } else {
+                val plain = SignalProtocolEngine.decryptMessage(
+                    context = context,
+                    conversationId = convId,
+                    currentUserId = viewModel.currentUserId,
+                    senderId = msg.senderId,
+                    ciphertextBase64 = msg.text,
+                    ivBase64 = msg.encryptionIv,
+                    ephemeralPublicKeyB64 = msg.ephemeralPublicKey,
+                    senderIdentityKeyB64 = msg.senderIdentityKey,
+                    peerPublicKeyB64 = peerE2eeKey
+                )
+                msg.copy(text = plain ?: "🔒 Encrypted message")
+            }
+        }
+    }
+    val photoMessages = remember(decryptedMessages) {
+        decryptedMessages.filter { it.type == Message.TYPE_IMAGE && !it.imageBase64.isNullOrBlank() }
+    }
+    val filteredMessages = remember(decryptedMessages, showSearchBar, inChatSearchQuery) {
+        if (!showSearchBar || inChatSearchQuery.isBlank()) decryptedMessages
+        else decryptedMessages.filter { msg ->
             msg.text.contains(inChatSearchQuery, ignoreCase = true) ||
                 msg.senderName.contains(inChatSearchQuery, ignoreCase = true) ||
                 (msg.pollQuestion?.contains(inChatSearchQuery, ignoreCase = true) == true) ||
@@ -189,9 +261,88 @@ fun ChatRoomScreen(
         }
     }
 
+    val preparedRows = remember(
+        filteredMessages,
+        peopleMap,
+        currentUserProfile,
+        conversation?.lastReadAt,
+        conversation?.participantIds,
+        viewModel.currentUserId
+    ) {
+        filteredMessages.mapIndexed { index, msg ->
+            val prev = filteredMessages.getOrNull(index - 1)
+            val next = filteredMessages.getOrNull(index + 1)
+            val showDayHeader = prev == null || !isSameCalendarDay(prev.createdAt, msg.createdAt)
+            val isFirstInCluster = showDayHeader || !areClusteredMessages(prev, msg)
+            val isLastInCluster = next == null ||
+                !isSameCalendarDay(msg.createdAt, next.createdAt) ||
+                !areClusteredMessages(msg, next)
+            val dayHeaderLabel = formatDayHeader(msg.createdAt)
+            val isOwn = msg.senderId == viewModel.currentUserId
+            val liveSenderProfile = if (isOwn) currentUserProfile else peopleMap[msg.senderId]
+            val displayMsg = if (liveSenderProfile != null) {
+                val resolvedName = liveSenderProfile.displayName.ifBlank { msg.senderName }
+                val resolvedPhoto = liveSenderProfile.photoUrl.ifBlank { msg.senderPhotoUrl }
+                if (resolvedName != msg.senderName || resolvedPhoto != msg.senderPhotoUrl) {
+                    msg.copy(senderName = resolvedName, senderPhotoUrl = resolvedPhoto)
+                } else {
+                    msg
+                }
+            } else {
+                msg
+            }
+            val isRead = conversation?.isMessageReadByOthers(
+                message = msg,
+                currentUserId = viewModel.currentUserId
+            ) == true
+            val baseType = when {
+                msg.type == Message.TYPE_AUDIO || resolveVoiceAudioUrl(msg) != null -> "audio"
+                msg.type == Message.TYPE_IMAGE || !msg.imageBase64.isNullOrBlank() -> "image"
+                msg.type == Message.TYPE_POLL -> "poll"
+                else -> "text"
+            }
+            PreparedChatRoomRow(
+                key = msg.id.ifBlank { "room_msg_$index" },
+                contentType = if (showDayHeader) "${baseType}_hdr" else baseType,
+                originalMessage = msg,
+                displayMessage = displayMsg,
+                isOwnMessage = isOwn,
+                isRead = isRead,
+                showDayHeader = showDayHeader,
+                dayHeaderLabel = dayHeaderLabel,
+                isFirstInCluster = isFirstInCluster,
+                isLastInCluster = isLastInCluster
+            )
+        }
+    }
+
     val listState = rememberLazyListState()
-    val showJumpToBottom by remember {
-        derivedStateOf { listState.canScrollForward && filteredMessages.isNotEmpty() }
+    val isNearBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) {
+                true
+            } else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible >= total - 3 || !listState.canScrollForward
+            }
+        }
+    }
+    val showJumpToBottom by remember(preparedRows.size) {
+        derivedStateOf {
+            preparedRows.isNotEmpty() && listState.canScrollForward && !isNearBottom
+        }
+    }
+    val floatingDateLabel by remember(preparedRows) {
+        derivedStateOf {
+            if (!listState.isScrollInProgress || preparedRows.size < 8) {
+                null
+            } else {
+                val idx = listState.firstVisibleItemIndex.coerceIn(0, preparedRows.lastIndex)
+                preparedRows[idx].dayHeaderLabel
+            }
+        }
     }
 
     val beginVoiceRecording: () -> Unit = {
@@ -216,10 +367,11 @@ fun ChatRoomScreen(
         val conv = conversation
         val profile = currentUserProfile
         isRecordingAudio = false
-        val encoded = voiceRecorder.stopAndEncode()
+        recordingAmplitude = 0.15f
+        val recordedResult = voiceRecorder.stopRecording()
         if (conv != null && profile != null) {
-            encoded.onSuccess { note ->
-                viewModel.sendVoiceNote(conv, profile, note.base64, note.durationSec) {}
+            recordedResult.onSuccess { recorded ->
+                viewModel.uploadAndSendVoiceNote(conv, profile, recorded)
             }.onFailure { err ->
                 Toast.makeText(
                     context,
@@ -227,16 +379,21 @@ fun ChatRoomScreen(
                     Toast.LENGTH_SHORT
                 ).show()
             }
+        } else {
+            recordedResult.getOrNull()?.file?.delete()
         }
     }
 
     LaunchedEffect(isRecordingAudio) {
         if (isRecordingAudio) {
-            while (isRecordingAudio && recordingSeconds < 29) {
-                delay(1000L)
-                recordingSeconds += 1
+            var elapsedMs = 0L
+            while (isRecordingAudio && recordingSeconds < VoiceNoteRecorder.MAX_DURATION_SEC) {
+                delay(100L)
+                elapsedMs += 100L
+                recordingAmplitude = voiceRecorder.currentNormalizedAmplitude()
+                recordingSeconds = (elapsedMs / 1000L).toInt()
             }
-            if (isRecordingAudio && recordingSeconds >= 29) {
+            if (isRecordingAudio && recordingSeconds >= VoiceNoteRecorder.MAX_DURATION_SEC) {
                 finishAndSendVoiceRecording()
             }
         }
@@ -290,21 +447,28 @@ fun ChatRoomScreen(
         editingMessage?.let { draftText = it.text }
     }
 
-    LaunchedEffect(conversation?.id, messages.size, readReceiptsEnabled) {
-        if (readReceiptsEnabled && conversation != null) {
-            viewModel.markRead(conversation)
+    var previousRoomMessageCount by remember(viewModel.conversationId) { mutableIntStateOf(0) }
+    LaunchedEffect(conversation?.id, preparedRows.size, conversation?.lastMessageAt, readReceiptsEnabled) {
+        if (conversation != null) {
+            viewModel.markRead(conversation, sendReadReceipt = readReceiptsEnabled)
         }
-        if (messages.isNotEmpty() && !showSearchBar) {
-            listState.animateScrollToItem(messages.lastIndex)
+        val count = preparedRows.size
+        if (count > 0 && !showSearchBar) {
+            val lastRow = preparedRows.last()
+            val isInitialLoad = previousRoomMessageCount == 0
+            val shouldAutoScroll = isInitialLoad || isNearBottom || lastRow.isOwnMessage
+            if (shouldAutoScroll) {
+                val targetIndex = count - 1
+                if (isInitialLoad || abs(targetIndex - listState.firstVisibleItemIndex) > 40) {
+                    listState.scrollToItem(targetIndex)
+                } else {
+                    listState.animateScrollToItem(targetIndex)
+                }
+            }
         }
+        previousRoomMessageCount = count
     }
 
-    val otherId = conversation?.otherParticipantId(viewModel.currentUserId)
-    val otherProfile = remember(otherId, allPeople) {
-        otherId?.let { id -> allPeople.firstOrNull { it.userId == id } }
-    }
-    val isGroup = conversation?.type == Conversation.TYPE_GROUP
-    val isSelfChat = !isGroup && (conversation?.participantIds?.distinct()?.size ?: 0) <= 1
     val isOtherBlocked = !isGroup && !isSelfChat && otherId != null && otherId in blockedUserIds
     val canCallInThread = conversation != null && !isSelfChat && !isOtherBlocked &&
         conversation.participantIds.any { it != viewModel.currentUserId }
@@ -350,25 +514,28 @@ fun ChatRoomScreen(
     val typingHeaderSubtitle = remember(activeTypingNames, isGroup) {
         when {
             activeTypingNames.isEmpty() -> null
-            !isGroup -> "typing…"
-            activeTypingNames.size == 1 -> "${activeTypingNames[0]} is typing…"
-            activeTypingNames.size == 2 -> "${activeTypingNames[0]} and ${activeTypingNames[1]} are typing…"
-            else -> "${activeTypingNames[0]}, ${activeTypingNames[1]} +${activeTypingNames.size - 2} typing…"
+            !isGroup -> "typing..."
+            activeTypingNames.size == 1 -> "${activeTypingNames[0]} is typing..."
+            activeTypingNames.size == 2 -> "${activeTypingNames[0]} and ${activeTypingNames[1]} are typing..."
+            else -> "${activeTypingNames[0]}, ${activeTypingNames[1]} +${activeTypingNames.size - 2} typing..."
         }
     }
 
     val subtitle = when {
-        conversation == null -> "connecting…"
+        conversation == null -> "connecting..."
         isOtherBlocked -> "blocked"
         typingHeaderSubtitle != null -> typingHeaderSubtitle
-        isSelfChat -> "cloud storage & notes"
+        isSelfChat -> "encrypted personal notes"
         isGroup -> {
             val base = "${conversation.participantIds.size} members"
             if (conversation.topic.isNotBlank()) "$base, ${conversation.topic}" else base
         }
         otherProfile != null -> {
+            val statusMessage = otherProfile.statusVibe.trim()
             when {
+                otherProfile.isOnline && statusMessage.isNotBlank() -> "online · $statusMessage"
                 otherProfile.isOnline -> "online"
+                statusMessage.isNotBlank() -> statusMessage
                 otherProfile.lastSeenAt != null -> "last seen ${formatRelativeTime(otherProfile.lastSeenAt)}"
                 else -> "last seen recently"
             }
@@ -431,14 +598,28 @@ fun ChatRoomScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (isE2eeActive) {
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Icon(
+                                        imageVector = Icons.Rounded.Lock,
+                                        contentDescription = "End-to-end encrypted chat",
+                                        tint = Color(0xFFB3E5FC),
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .testTag("chat_header_e2ee_icon")
+                                    )
+                                }
+                            }
                             Text(
                                 text = subtitle,
                                 style = MaterialTheme.typography.labelSmall,
@@ -559,6 +740,16 @@ fun ChatRoomScreen(
                                         }
                                     )
                                 }
+                                if (isE2eeActive) {
+                                    DropdownMenuItem(
+                                        text = { Text("Encryption & Safety Number") },
+                                        leadingIcon = { Icon(Icons.Rounded.VerifiedUser, contentDescription = null) },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            showE2eeSafetyDialog = true
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(if (isGroup) "Group Info" else "Chat Info & Media") },
                                     leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
@@ -578,12 +769,15 @@ fun ChatRoomScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .navigationBarsPadding()
-                .imePadding()
         ) {
+            // Keep wallpaper full-bleed so keyboard animations never resize or redraw it
             TelegramChatWallpaper()
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+            ) {
                 AnimatedVisibility(visible = showSearchBar) {
                     ChatRoomSearchBar(
                         query = inChatSearchQuery,
@@ -667,7 +861,7 @@ fun ChatRoomScreen(
                         }
 
                         is UiState.Success -> {
-                            if (filteredMessages.isEmpty()) {
+                            if (preparedRows.isEmpty()) {
                                 ChatRoomEmptyState(
                                     isSearchFiltered = showSearchBar && inChatSearchQuery.isNotBlank(),
                                     searchQuery = inChatSearchQuery
@@ -678,51 +872,47 @@ fun ChatRoomScreen(
                                     contentPadding = PaddingValues(vertical = 10.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    itemsIndexed(filteredMessages, key = { _, msg -> msg.id }) { index, msg ->
-                                        val prev = filteredMessages.getOrNull(index - 1)
-                                        val next = filteredMessages.getOrNull(index + 1)
-                                        val showDayHeader = prev == null || !isSameCalendarDay(prev.createdAt, msg.createdAt)
-                                        val isFirstInCluster = showDayHeader || !areClusteredMessages(prev, msg)
-                                        val isLastInCluster = next == null ||
-                                            !isSameCalendarDay(msg.createdAt, next.createdAt) ||
-                                            !areClusteredMessages(msg, next)
-
-                                        if (showDayHeader) {
-                                            DayDividerPill(label = formatDayHeader(msg.createdAt))
+                                    items(
+                                        items = preparedRows,
+                                        key = { row -> row.key },
+                                        contentType = { row -> row.contentType }
+                                    ) { row ->
+                                        val msg = row.originalMessage
+                                        if (row.showDayHeader) {
+                                            DayDividerPill(label = row.dayHeaderLabel)
                                         }
 
-                                        val liveSenderProfile = if (msg.senderId == viewModel.currentUserId) {
-                                            currentUserProfile
+                                        val bubblePlaybackState = if (voicePlaybackState.activeMessageId == msg.id) {
+                                            voicePlaybackState
                                         } else {
-                                            peopleMap[msg.senderId]
-                                        }
-                                        val displayMsg = if (liveSenderProfile != null) {
-                                            msg.copy(
-                                                senderName = liveSenderProfile.displayName.ifBlank { msg.senderName },
-                                                senderPhotoUrl = liveSenderProfile.photoUrl.ifBlank { msg.senderPhotoUrl }
-                                            )
-                                        } else {
-                                            msg
+                                            IdleVoicePlaybackState
                                         }
 
                                         MessageBubble(
-                                            message = displayMsg,
-                                            isOwnMessage = msg.senderId == viewModel.currentUserId,
+                                            message = row.displayMessage,
+                                            isOwnMessage = row.isOwnMessage,
                                             isGroup = isGroup,
                                             currentUserId = viewModel.currentUserId,
-                                            isFirstInCluster = isFirstInCluster,
-                                            isLastInCluster = isLastInCluster,
+                                            isRead = row.isRead,
+                                            isFirstInCluster = row.isFirstInCluster,
+                                            isLastInCluster = row.isLastInCluster,
                                             onLongPressOrTapActions = { selectedMessageForActions = msg },
                                             onToggleReaction = { emoji -> viewModel.toggleReaction(msg, emoji) },
+                                            onInspectReactions = { reactionDetailsMessageId = msg.id },
                                             onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
                                             onOpenImage = { bmp ->
                                                 lightboxState = Triple(bmp, msg.senderName, msg.text)
                                             },
-                                            voicePlaybackState = voicePlaybackState,
+                                            voicePlaybackState = bubblePlaybackState,
                                             onToggleVoicePlayback = { voiceMsg ->
+                                                val remoteUrl = resolveVoiceAudioUrl(voiceMsg)
                                                 val encoded = voiceMsg.audioBase64
-                                                if (!encoded.isNullOrBlank()) {
-                                                    voicePlayer.togglePlayback(voiceMsg.id, encoded)
+                                                if (!remoteUrl.isNullOrBlank() || !encoded.isNullOrBlank()) {
+                                                    voicePlayer.togglePlayback(
+                                                        messageId = voiceMsg.id,
+                                                        audioUrl = remoteUrl,
+                                                        audioBase64 = encoded
+                                                    )
                                                 }
                                             }
                                         )
@@ -732,12 +922,30 @@ fun ChatRoomScreen(
                         }
                     }
 
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = floatingDateLabel != null,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 6.dp)
+                    ) {
+                        floatingDateLabel?.let { label ->
+                            DayDividerPill(label = label)
+                        }
+                    }
+
                     JumpToLatestButton(
                         visible = showJumpToBottom,
                         onClick = {
                             scope.launch {
-                                if (filteredMessages.isNotEmpty()) {
-                                    listState.animateScrollToItem(filteredMessages.lastIndex)
+                                if (preparedRows.isNotEmpty()) {
+                                    val targetIdx = preparedRows.lastIndex
+                                    if (abs(targetIdx - listState.firstVisibleItemIndex) > 40) {
+                                        listState.scrollToItem(targetIdx)
+                                    } else {
+                                        listState.animateScrollToItem(targetIdx)
+                                    }
                                 }
                             }
                         },
@@ -881,6 +1089,24 @@ fun ChatRoomScreen(
                         }
                     )
 
+                    AnimatedVisibility(visible = voiceUploadState !is VoiceUploadState.Idle) {
+                        VoiceUploadStatusStrip(
+                            state = voiceUploadState,
+                            onCancel = {
+                                haptics.lightTap()
+                                viewModel.cancelVoiceUpload()
+                            },
+                            onRetry = {
+                                val conv = conversation
+                                val profile = currentUserProfile
+                                if (conv != null && profile != null) {
+                                    haptics.lightTap()
+                                    viewModel.retryVoiceUpload(conv, profile)
+                                }
+                            }
+                        )
+                    }
+
                     IosMessageComposerBar(
                         draftText = draftText,
                         onDraftChange = { next ->
@@ -900,18 +1126,37 @@ fun ChatRoomScreen(
                         onSend = {
                             val conv = conversation ?: return@IosMessageComposerBar
                             val profile = currentUserProfile ?: return@IosMessageComposerBar
-                            if (draftText.trim().isEmpty()) return@IosMessageComposerBar
+                            val trimmed = draftText.trim()
+                            if (trimmed.isEmpty()) return@IosMessageComposerBar
                             haptics.success()
-                            viewModel.sendOrEditText(conv, profile, draftText) {
+                            val encryptedPayload = if (isE2eeActive && peerE2eeKey != null) {
+                                SignalProtocolEngine.encryptMessage(
+                                    context = context,
+                                    conversationId = conv.id,
+                                    senderId = viewModel.currentUserId,
+                                    peerPublicKeyB64 = peerE2eeKey,
+                                    plaintext = trimmed
+                                )
+                            } else {
+                                null
+                            }
+                            viewModel.sendOrEditText(
+                                conversation = conv,
+                                senderProfile = profile,
+                                text = trimmed,
+                                encryptedPayload = encryptedPayload
+                            ) {
                                 draftText = ""
                                 isTrayOpen = false
                             }
                         },
                         isRecordingAudio = isRecordingAudio,
                         recordingSeconds = recordingSeconds,
+                        recordingAmplitude = recordingAmplitude,
                         onStartVoiceRecord = requestStartVoiceRecording,
                         onCancelVoiceRecord = {
                             isRecordingAudio = false
+                            recordingAmplitude = 0.15f
                             voiceRecorder.cancel()
                         },
                         onSendVoiceRecord = finishAndSendVoiceRecording
@@ -922,26 +1167,34 @@ fun ChatRoomScreen(
     }
 
     selectedMessageForActions?.let { msg ->
-        val isPinned = conversation?.pinnedMessageId == msg.id
+        val liveMsg = decryptedMessages.firstOrNull { it.id == msg.id } ?: msg
+        val isPinned = conversation?.pinnedMessageId == liveMsg.id
         MessageActionsDialog(
-            message = msg,
-            isOwnMessage = msg.senderId == viewModel.currentUserId,
+            message = liveMsg,
+            currentUserId = viewModel.currentUserId,
+            isOwnMessage = liveMsg.senderId == viewModel.currentUserId,
             isPinnedInChat = isPinned,
             onDismiss = { selectedMessageForActions = null },
-            onReact = { emoji -> viewModel.toggleReaction(msg, emoji) },
-            onReply = { viewModel.setReplyTarget(msg) },
-            onEdit = { viewModel.setEditingTarget(msg) },
-            onDelete = { viewModel.deleteMessage(msg) },
+            onReact = { emoji -> viewModel.toggleReaction(liveMsg, emoji) },
+            onInspectReactions = { reactionDetailsMessageId = liveMsg.id },
+            onReply = { viewModel.setReplyTarget(liveMsg) },
+            onEdit = { viewModel.setEditingTarget(liveMsg) },
+            onDelete = { viewModel.deleteMessage(liveMsg) },
             onCopy = {
-                clipboardManager.setText(AnnotatedString(msg.text))
-                Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
+                val copyValue = resolveVoiceAudioUrl(liveMsg) ?: liveMsg.text
+                clipboardManager.setText(AnnotatedString(copyValue))
+                Toast.makeText(
+                    context,
+                    if (resolveVoiceAudioUrl(liveMsg) != null) "Audio link copied" else "Message copied",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
             onForward = if (allConversations.isNotEmpty()) {
-                { messageToForward = msg }
+                { messageToForward = liveMsg }
             } else null,
             onTogglePin = conversation?.let { conv ->
                 {
-                    viewModel.pinOrUnpinMessage(conv, if (isPinned) null else msg) { pinned ->
+                    viewModel.pinOrUnpinMessage(conv, if (isPinned) null else liveMsg) { pinned ->
                         Toast.makeText(
                             context,
                             if (pinned) "Message pinned to top" else "Message unpinned",
@@ -951,6 +1204,24 @@ fun ChatRoomScreen(
                 }
             }
         )
+    }
+
+    reactionDetailsMessageId?.let { targetMsgId ->
+        val liveMsg = decryptedMessages.firstOrNull { it.id == targetMsgId }
+        if (liveMsg == null || liveMsg.reactions.isEmpty()) {
+            reactionDetailsMessageId = null
+        } else {
+            MessageReactionsDetailDialog(
+                message = liveMsg,
+                currentUserId = viewModel.currentUserId,
+                currentUserProfile = currentUserProfile,
+                peopleMap = peopleMap,
+                participantNames = conversation?.participantNames.orEmpty(),
+                participantPhotos = conversation?.participantPhotos.orEmpty(),
+                onToggleReaction = { emoji -> viewModel.toggleReaction(liveMsg, emoji) },
+                onDismiss = { reactionDetailsMessageId = null }
+            )
+        }
     }
 
     messageToForward?.let { original ->
@@ -1111,6 +1382,84 @@ fun ChatRoomScreen(
                 }
             )
         }
+    }
+
+    if (showE2eeSafetyDialog && isE2eeActive && peerE2eeKey != null) {
+        val localPubKey = remember(viewModel.currentUserId) {
+            E2eeKeyManager.getPublicIdentityKeyBase64(context, viewModel.currentUserId)
+        }
+        val safetyNumber = remember(localPubKey, peerE2eeKey) {
+            E2eeKeyManager.computeSafetyNumber(localPubKey, peerE2eeKey)
+        }
+        AlertDialog(
+            onDismissRequest = { showE2eeSafetyDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.VerifiedUser,
+                    contentDescription = null,
+                    tint = TelegramBlue,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "End-to-End Encrypted",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Messages in this conversation are secured with Signal-style X3DH + ephemeral ECDH key exchange and AES-256-GCM. Private keys stay inside Android Keystore on your device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Safety Number",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = safetyNumber,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp)
+                                .testTag("e2ee_safety_number_text")
+                        )
+                    }
+                    Text(
+                        text = "Compare this 60-digit number with $title to verify your encryption keys.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(safetyNumber))
+                        Toast.makeText(context, "Safety number copied", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Copy", fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showE2eeSafetyDialog = false }) {
+                    Text("Done", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }
 

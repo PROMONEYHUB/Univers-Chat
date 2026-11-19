@@ -246,6 +246,9 @@ object AuthProfilePrefill {
 
     @Volatile
     var pendingPhotoUrl: String? = null
+
+    @Volatile
+    var pendingPhoneNumber: String? = null
 }
 
 suspend fun signInWithPhoneCredential(

@@ -26,9 +26,11 @@ object NotificationHelper {
     const val CHANNEL_MESSAGES = "univers_chat_messages"
     const val CHANNEL_SYNC_STATUS = "univers_chat_live_sync"
     const val CHANNEL_CALLS = "univers_chat_calls"
+    const val CHANNEL_CONTACTS = "univers_chat_contacts"
     const val SERVICE_NOTIFICATION_ID = 9001
 
     const val EXTRA_CONVERSATION_ID = "extra_conversation_id"
+    const val EXTRA_JOINED_USER_ID = "extra_joined_user_id"
     const val KEY_INLINE_REPLY = "key_inline_reply"
     const val ACTION_INLINE_REPLY = "com.example.notifications.ACTION_INLINE_REPLY"
     const val ACTION_MARK_READ = "com.example.notifications.ACTION_MARK_READ"
@@ -100,9 +102,24 @@ object NotificationHelper {
             setSound(callRingtoneUri, callAudioAttributes)
         }
 
+        val contactsChannel = NotificationChannel(
+            CHANNEL_CONTACTS,
+            "Contacts Joined",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Alerts when a saved contact joins Univers Chat"
+            enableVibration(true)
+            enableLights(true)
+            lightColor = Color.rgb(99, 102, 241)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setShowBadge(true)
+            setSound(soundUri, audioAttributes)
+        }
+
         manager.createNotificationChannel(messageChannel)
         manager.createNotificationChannel(syncChannel)
         manager.createNotificationChannel(callsChannel)
+        manager.createNotificationChannel(contactsChannel)
     }
 
     fun buildLiveSyncNotification(context: Context): Notification {
@@ -219,6 +236,50 @@ object NotificationHelper {
             .setContentIntent(contentPendingIntent)
             .addAction(replyAction)
             .addAction(markReadAction)
+            .build()
+
+        try {
+            NotificationManagerCompat.from(context).notify(notifId, notification)
+        } catch (_: SecurityException) {
+            // Permission revoked concurrently
+        }
+    }
+
+    fun showContactJoinedNotification(
+        context: Context,
+        contactDisplayName: String,
+        joinedUserId: String
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannels(context)
+
+        val notifId = (("contact_joined_$joinedUserId").hashCode() and 0x0FFFFFFF).coerceAtLeast(30_000)
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_JOINED_USER_ID, joinedUserId)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = "$contactDisplayName joined Univers Chat!"
+        val body = "Your contact is now on Univers Chat. Tap to say hello with encrypted chat."
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_CONTACTS)
+            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setColor(Color.rgb(99, 102, 241))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(contentPendingIntent)
             .build()
 
         try {

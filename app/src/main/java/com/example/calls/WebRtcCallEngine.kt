@@ -122,10 +122,12 @@ class WebRtcCallEngine(
 
                 override fun onIceCandidate(candidate: IceCandidate?) {
                     if (candidate == null || isDisposed) return
+                    val sdp = candidate.sdp?.trim().orEmpty()
+                    if (sdp.isEmpty()) return
                     onLocalIceCandidate(
                         candidate.sdpMid.orEmpty(),
-                        candidate.sdpMLineIndex,
-                        candidate.sdp
+                        candidate.sdpMLineIndex.coerceAtLeast(0),
+                        sdp
                     )
                 }
 

@@ -1,14 +1,6 @@
 package com.example.ui.components
 
 import android.content.Context
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -16,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
@@ -31,13 +22,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
@@ -177,11 +170,7 @@ fun TelegramChatWallpaper(
     style: TelegramWallpaperStyle = LocalWallpaperResolved()
 ) {
     val isDark = LocalIsTelegramDark.current
-    val gradientBrush = if (isDark) {
-        Brush.verticalGradient(colors = listOf(style.darkTop, style.darkBottom))
-    } else {
-        Brush.verticalGradient(colors = listOf(style.lightTop, style.lightMid, style.lightBottom))
-    }
+    val baseColor = if (isDark) TelegramDarkChatCanvas else style.lightMid
     val doodleColor = if (isDark) {
         Color(0xFF8B8DFF).copy(alpha = 0.085f)
     } else {
@@ -191,147 +180,146 @@ fun TelegramChatWallpaper(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (isDark) TelegramDarkChatCanvas else style.lightMid)
-            .background(gradientBrush)
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val orb1Center = Offset(
-                x = size.width * 0.22f,
-                y = size.height * 0.22f
-            )
-            val orb2Center = Offset(
-                x = size.width * 0.80f,
-                y = size.height * 0.74f
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
+            .background(baseColor)
+            .drawWithCache {
+                val gradientBrush = if (isDark) {
+                    Brush.verticalGradient(colors = listOf(style.darkTop, style.darkBottom))
+                } else {
+                    Brush.verticalGradient(colors = listOf(style.lightTop, style.lightMid, style.lightBottom))
+                }
+                val orb1Center = Offset(x = size.width * 0.22f, y = size.height * 0.22f)
+                val orb2Center = Offset(x = size.width * 0.80f, y = size.height * 0.74f)
+                val orb1Radius = (size.minDimension * 0.62f).coerceAtLeast(1f)
+                val orb2Radius = (size.minDimension * 0.58f).coerceAtLeast(1f)
+                val orb1Brush = Brush.radialGradient(
                     colors = listOf(
                         AuroraCyan.copy(alpha = if (isDark) 0.14f else 0.16f),
                         Color.Transparent
                     ),
                     center = orb1Center,
-                    radius = size.minDimension * 0.62f
-                ),
-                radius = size.minDimension * 0.62f,
-                center = orb1Center
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
+                    radius = orb1Radius
+                )
+                val orb2Brush = Brush.radialGradient(
                     colors = listOf(
                         AuroraViolet.copy(alpha = if (isDark) 0.12f else 0.10f),
                         Color.Transparent
                     ),
                     center = orb2Center,
-                    radius = size.minDimension * 0.58f
-                ),
-                radius = size.minDimension * 0.58f,
-                center = orb2Center
-            )
+                    radius = orb2Radius
+                )
 
-            val stepX = 112.dp.toPx()
-            val stepY = 112.dp.toPx()
-            val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-            var row = 0
-            var y = 28.dp.toPx()
-            while (y < size.height + stepY) {
-                val offsetX = if (row % 2 == 1) stepX * 0.5f else 0f
-                var col = 0
-                var x = -20.dp.toPx() + offsetX
-                while (x < size.width + stepX) {
-                    val center = Offset(x, y)
-                    when ((row * 3 + col) % 6) {
-                        0 -> drawOrbitPlanetDoodle(center, 14.dp.toPx(), doodleColor, stroke)
-                        1 -> drawStarDoodle(center, 12.dp.toPx(), doodleColor, stroke)
-                        2 -> drawBubbleDoodle(center, 14.dp.toPx(), doodleColor, stroke)
-                        3 -> drawMoonDoodle(center, 11.dp.toPx(), doodleColor, stroke)
-                        4 -> drawBoltDoodle(center, 13.dp.toPx(), doodleColor, stroke)
-                        else -> drawHeartDoodle(center, 12.dp.toPx(), doodleColor, stroke)
+                val stepX = 112.dp.toPx()
+                val stepY = 112.dp.toPx()
+                val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                val combinedPath = Path()
+                val planetCenters = ArrayList<Offset>(16)
+                val rPlanet = 14.dp.toPx()
+                val rStar = 12.dp.toPx()
+                val rBubble = 14.dp.toPx()
+                val rMoon = 11.dp.toPx()
+                val rBolt = 13.dp.toPx()
+                val rHeart = 12.dp.toPx()
+                val ringSize = Size(rPlanet * 2.3f, rPlanet * 0.64f)
+
+                var row = 0
+                var y = 28.dp.toPx()
+                while (y < size.height + stepY) {
+                    val offsetX = if (row % 2 == 1) stepX * 0.5f else 0f
+                    var col = 0
+                    var x = -20.dp.toPx() + offsetX
+                    while (x < size.width + stepX) {
+                        val center = Offset(x, y)
+                        when ((row * 3 + col) % 6) {
+                            0 -> {
+                                combinedPath.addOval(Rect(center = center, radius = rPlanet * 0.55f))
+                                planetCenters.add(center)
+                            }
+                            1 -> combinedPath.addStarDoodle(center, rStar)
+                            2 -> combinedPath.addBubbleDoodle(center, rBubble)
+                            3 -> combinedPath.addMoonDoodle(center, rMoon)
+                            4 -> combinedPath.addBoltDoodle(center, rBolt)
+                            else -> combinedPath.addHeartDoodle(center, rHeart)
+                        }
+                        x += stepX
+                        col++
                     }
-                    x += stepX
-                    col++
+                    y += stepY
+                    row++
                 }
-                y += stepY
-                row++
+
+                onDrawBehind {
+                    drawRect(brush = gradientBrush)
+                    drawCircle(brush = orb1Brush, radius = orb1Radius, center = orb1Center)
+                    drawCircle(brush = orb2Brush, radius = orb2Radius, center = orb2Center)
+                    drawPath(path = combinedPath, color = doodleColor, style = stroke)
+                    for (i in 0 until planetCenters.size) {
+                        val center = planetCenters[i]
+                        rotate(-24f, pivot = center) {
+                            drawOval(
+                                color = doodleColor,
+                                topLeft = Offset(center.x - rPlanet * 1.15f, center.y - rPlanet * 0.32f),
+                                size = ringSize,
+                                style = stroke
+                            )
+                        }
+                    }
+                }
             }
-        }
-    }
+    )
 }
 
 @Composable
 private fun LocalWallpaperResolved(): TelegramWallpaperStyle = LocalTelegramWallpaper.current
 
-private fun DrawScope.drawOrbitPlanetDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    drawCircle(color = color, radius = r * 0.55f, center = center, style = stroke)
-    rotate(-24f, pivot = center) {
-        drawOval(
-            color = color,
-            topLeft = Offset(center.x - r * 1.15f, center.y - r * 0.32f),
-            size = androidx.compose.ui.geometry.Size(r * 2.3f, r * 0.64f),
-            style = stroke
-        )
-    }
-}
-
-private fun DrawScope.drawStarDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    val path = Path()
+private fun Path.addStarDoodle(center: Offset, r: Float) {
     for (i in 0 until 10) {
         val radius = if (i % 2 == 0) r else r * 0.45f
         val angle = (i * 36.0 - 90.0) * PI / 180.0
         val px = center.x + (radius * cos(angle)).toFloat()
         val py = center.y + (radius * sin(angle)).toFloat()
-        if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        if (i == 0) moveTo(px, py) else lineTo(px, py)
     }
-    path.close()
-    drawPath(path, color = color, style = stroke)
+    close()
 }
 
-private fun DrawScope.drawBubbleDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    val path = Path().apply {
-        moveTo(center.x - r * 0.8f, center.y - r * 0.55f)
-        lineTo(center.x + r * 0.8f, center.y - r * 0.55f)
-        lineTo(center.x + r * 0.8f, center.y + r * 0.35f)
-        lineTo(center.x - r * 0.1f, center.y + r * 0.35f)
-        lineTo(center.x - r * 0.55f, center.y + r * 0.75f)
-        lineTo(center.x - r * 0.55f, center.y + r * 0.35f)
-        lineTo(center.x - r * 0.8f, center.y + r * 0.35f)
-        close()
-    }
-    drawPath(path, color = color, style = stroke)
+private fun Path.addBubbleDoodle(center: Offset, r: Float) {
+    moveTo(center.x - r * 0.8f, center.y - r * 0.55f)
+    lineTo(center.x + r * 0.8f, center.y - r * 0.55f)
+    lineTo(center.x + r * 0.8f, center.y + r * 0.35f)
+    lineTo(center.x - r * 0.1f, center.y + r * 0.35f)
+    lineTo(center.x - r * 0.55f, center.y + r * 0.75f)
+    lineTo(center.x - r * 0.55f, center.y + r * 0.35f)
+    lineTo(center.x - r * 0.8f, center.y + r * 0.35f)
+    close()
 }
 
-private fun DrawScope.drawMoonDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    drawCircle(color = color, radius = r * 0.72f, center = center, style = stroke)
-    drawCircle(color = color, radius = r * 0.25f, center = Offset(center.x + r * 0.9f, center.y - r * 0.7f), style = stroke)
+private fun Path.addMoonDoodle(center: Offset, r: Float) {
+    addOval(Rect(center = center, radius = r * 0.72f))
+    addOval(Rect(center = Offset(center.x + r * 0.9f, center.y - r * 0.7f), radius = r * 0.25f))
 }
 
-private fun DrawScope.drawBoltDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    val path = Path().apply {
-        moveTo(center.x + r * 0.2f, center.y - r)
-        lineTo(center.x - r * 0.55f, center.y + r * 0.1f)
-        lineTo(center.x + r * 0.05f, center.y + r * 0.1f)
-        lineTo(center.x - r * 0.2f, center.y + r)
-        lineTo(center.x + r * 0.55f, center.y - r * 0.1f)
-        lineTo(center.x - r * 0.05f, center.y - r * 0.1f)
-        close()
-    }
-    drawPath(path, color = color, style = stroke)
+private fun Path.addBoltDoodle(center: Offset, r: Float) {
+    moveTo(center.x + r * 0.2f, center.y - r)
+    lineTo(center.x - r * 0.55f, center.y + r * 0.1f)
+    lineTo(center.x + r * 0.05f, center.y + r * 0.1f)
+    lineTo(center.x - r * 0.2f, center.y + r)
+    lineTo(center.x + r * 0.55f, center.y - r * 0.1f)
+    lineTo(center.x - r * 0.05f, center.y - r * 0.1f)
+    close()
 }
 
-private fun DrawScope.drawHeartDoodle(center: Offset, r: Float, color: Color, stroke: Stroke) {
-    val path = Path().apply {
-        moveTo(center.x, center.y + r * 0.72f)
-        cubicTo(
-            center.x - r * 1.15f, center.y + r * 0.05f,
-            center.x - r * 0.85f, center.y - r * 0.85f,
-            center.x, center.y - r * 0.25f
-        )
-        cubicTo(
-            center.x + r * 0.85f, center.y - r * 0.85f,
-            center.x + r * 1.15f, center.y + r * 0.05f,
-            center.x, center.y + r * 0.72f
-        )
-    }
-    drawPath(path, color = color, style = stroke)
+private fun Path.addHeartDoodle(center: Offset, r: Float) {
+    moveTo(center.x, center.y + r * 0.72f)
+    cubicTo(
+        center.x - r * 1.15f, center.y + r * 0.05f,
+        center.x - r * 0.85f, center.y - r * 0.85f,
+        center.x, center.y - r * 0.25f
+    )
+    cubicTo(
+        center.x + r * 0.85f, center.y - r * 0.85f,
+        center.x + r * 1.15f, center.y + r * 0.05f,
+        center.x, center.y + r * 0.72f
+    )
 }
 
 @Composable

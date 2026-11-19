@@ -1,8 +1,10 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.contacts.DeviceContactsManager
 import com.example.data.model.CallSession
 import com.example.data.model.Conversation
 import com.example.data.model.Message
@@ -11,6 +13,7 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.CallSignalingRepository
 import com.example.data.repository.MessagingRepository
+import com.example.notifications.MessageNotificationCoordinator
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -35,7 +38,8 @@ enum class ChatFilter(val label: String) {
 class MainMessagingViewModel(
     private val repository: MessagingRepository,
     val currentUserId: String,
-    private val callSignalingRepository: CallSignalingRepository? = null
+    private val callSignalingRepository: CallSignalingRepository? = null,
+    private val localE2eePublicKey: String? = null
 ) : ViewModel() {
 
     val currentUserProfile: StateFlow<UserProfile?> = repository.observeUserProfile(currentUserId)
@@ -146,15 +150,58 @@ class MainMessagingViewModel(
     private val _isUploadingPhoto = MutableStateFlow(false)
     val isUploadingPhoto: StateFlow<Boolean> = _isUploadingPhoto.asStateFlow()
 
+    private val _syncedContactHashes = MutableStateFlow<Set<String>>(emptySet())
+    val syncedContactHashes: StateFlow<Set<String>> = _syncedContactHashes.asStateFlow()
+
+    private val _localContactNamesByHash = MutableStateFlow<Map<String, String>>(emptyMap())
+    val localContactNamesByHash: StateFlow<Map<String, String>> = _localContactNamesByHash.asStateFlow()
+
+    private val _isSyncingContacts = MutableStateFlow(false)
+    val isSyncingContacts: StateFlow<Boolean> = _isSyncingContacts.asStateFlow()
+
     init {
         viewModelScope.launch {
             val firebaseUser = Firebase.auth.currentUser
             if (firebaseUser != null && firebaseUser.uid == currentUserId) {
-                repository.syncCurrentUserProfile(firebaseUser).onFailure { err ->
+                repository.syncCurrentUserProfile(
+                    firebaseUser = firebaseUser,
+                    e2eePublicKey = localE2eePublicKey
+                ).onFailure { err ->
                     Log.w(TAG, "Failed to sync user profile", err)
                     _actionMessage.value = err.localizedMessage ?: "Failed to sync profile"
                 }
             }
+        }
+    }
+
+    fun syncDeviceContacts(context: Context, showFeedback: Boolean = false) {
+        viewModelScope.launch {
+            if (!DeviceContactsManager.hasContactsPermission(context)) return@launch
+            _isSyncingContacts.value = true
+            val contactMap = DeviceContactsManager.readHashedDeviceContacts(context)
+            val hashToName = contactMap.mapValues { it.value.displayName }
+            _localContactNamesByHash.value = hashToName
+            _syncedContactHashes.value = contactMap.keys
+            MessageNotificationCoordinator.updateLocalContactDirectory(hashToName)
+
+            repository.syncContactHashes(contactMap.keys.toList())
+                .onSuccess {
+                    _isSyncingContacts.value = false
+                    if (showFeedback) {
+                        _actionMessage.value = if (contactMap.isEmpty()) {
+                            "No phone contacts found to sync"
+                        } else {
+                            "Contacts synced securely — we'll notify you when friends join Univers Chat!"
+                        }
+                    }
+                }
+                .onFailure { err ->
+                    _isSyncingContacts.value = false
+                    Log.w(TAG, "Failed to sync contact hashes", err)
+                    if (showFeedback) {
+                        _actionMessage.value = err.localizedMessage ?: "Failed to sync contacts"
+                    }
+                }
         }
     }
 
