@@ -3,6 +3,7 @@ package com.example.notifications
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.RemoteInput
 import com.example.R
 import com.example.data.model.Conversation
@@ -70,6 +71,8 @@ class MessageNotificationActionReceiver : BroadcastReceiver() {
                         NotificationHelper.cancelConversationNotification(context, conversationId)
                     }
                 }
+            } catch (e: Exception) {
+                Log.w("MsgNotifActionReceiver", "Failed to handle notification action: $action", e)
             } finally {
                 pendingResult.finish()
             }

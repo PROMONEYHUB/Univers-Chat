@@ -246,6 +246,8 @@ class MessagingRepository(
             .take(500)
         val docRef = db.collection(USERS_COLLECTION).document(uid)
         try {
+            val snap = docRef.get().await()
+            if (!snap.exists()) return@runCatching
             docRef.update(
                 mapOf(
                     "contactHashes" to sanitized,
@@ -446,6 +448,8 @@ class MessagingRepository(
         val uid = requireUserId()
         val docRef = db.collection(USERS_COLLECTION).document(uid)
         try {
+            val snap = docRef.get().await()
+            if (!snap.exists()) return@runCatching
             docRef.update(
                 mapOf(
                     "readReceiptsEnabled" to readReceiptsEnabled,
@@ -470,6 +474,9 @@ class MessagingRepository(
         val docRef = db.collection(USERS_COLLECTION).document(uid)
         try {
             val snap = docRef.get().await()
+            if (!snap.exists()) {
+                throw IllegalStateException("Account setup is still finishing. Please try again.")
+            }
             val currentBlocked = (snap.get("blockedUserIds") as? List<*>)
                 ?.filterIsInstance<String>()
                 ?.toMutableList()
@@ -678,13 +685,16 @@ class MessagingRepository(
     suspend fun sendVoiceMessage(
         conversation: Conversation,
         senderProfile: UserProfile,
-        audioUrl: String,
+        audioPayload: String,
         durationSec: Int,
         replyTo: Message? = null
     ): Result<Unit> = runCatching {
-        val cleanUrl = audioUrl.trim()
-        require(cleanUrl.startsWith("https://") && cleanUrl.length in 12..2000) {
-            "Valid Firebase Storage audio link is required."
+        val trimmed = audioPayload.trim()
+        val isRemoteUrl = trimmed.startsWith("https://", ignoreCase = true)
+        val cleanUrl = if (isRemoteUrl && trimmed.length in 12..2000) trimmed else null
+        val cleanBase64 = if (!isRemoteUrl && trimmed.length in 16..95000) trimmed else null
+        require(cleanUrl != null || cleanBase64 != null) {
+            "Valid voice message audio data is required."
         }
         val safeSec = durationSec.coerceIn(1, 180)
         val formatted = "%d:%02d".format(safeSec / 60, safeSec % 60)
@@ -693,11 +703,11 @@ class MessagingRepository(
             conversation = conversation,
             senderProfile = senderProfile,
             type = Message.TYPE_AUDIO,
-            text = cleanUrl,
+            text = cleanUrl ?: "Voice message ($formatted)",
             previewText = preview,
             imageBase64 = null,
             audioUrl = cleanUrl,
-            audioBase64 = null,
+            audioBase64 = cleanBase64,
             audioDurationSec = safeSec,
             replyTo = replyTo,
             pollQuestion = null,
@@ -866,21 +876,23 @@ class MessagingRepository(
             messagePayload["pollVotes"] = emptyMap<String, String>()
         }
 
-        val updatedUnread = conversation.participantIds.associateWith { participantId ->
-            if (participantId == uid) 0L else (conversation.unreadCounts[participantId] ?: 0L) + 1L
-        }
-
-        val convUpdatePayload = mapOf(
+        val convUpdatePayload = mutableMapOf<String, Any>(
             "lastMessageText" to previewText.take(300),
             "lastMessageSenderId" to uid,
             "lastMessageSenderName" to senderProfile.displayName.take(60),
             "lastMessageType" to type,
             "lastMessageAt" to FieldValue.serverTimestamp(),
-            "unreadCounts" to updatedUnread,
+            "unreadCounts.$uid" to 0L,
             "typingBy.$uid" to FieldValue.delete(),
             "lastReadAt.$uid" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        conversation.participantIds
+            .asSequence()
+            .filter { it != uid && it.isNotBlank() }
+            .forEach { peerId ->
+                convUpdatePayload["unreadCounts.$peerId"] = FieldValue.increment(1L)
+            }
 
         try {
             db.runBatch { batch ->
@@ -987,9 +999,6 @@ class MessagingRepository(
     ): Result<Unit> = runCatching {
         val uid = requireUserId()
         require(message.id.isNotBlank()) { "Message ID is required." }
-        val updatedVotes = message.pollVotes.toMutableMap()
-        updatedVotes[uid] = optionIndex.toString()
-
         val msgRef = db.collection(CONVERSATIONS_COLLECTION)
             .document(conversationId)
             .collection(MESSAGES_SUBCOLLECTION)
@@ -997,7 +1006,7 @@ class MessagingRepository(
         try {
             msgRef.update(
                 mapOf(
-                    "pollVotes" to updatedVotes,
+                    "pollVotes.$uid" to optionIndex.toString(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -1029,10 +1038,7 @@ class MessagingRepository(
             "updatedAt" to FieldValue.serverTimestamp()
         )
         if (hasUnread) {
-            val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
-                this[uid] = 0L
-            }
-            updates["unreadCounts"] = updatedUnread
+            updates["unreadCounts.$uid"] = 0L
         }
         if (sendReadReceipt) {
             updates["lastReadAt.$uid"] = FieldValue.serverTimestamp()
@@ -1052,13 +1058,10 @@ class MessagingRepository(
         val currentlyUnread = (conversation.unreadCounts[uid] ?: 0L) > 0L
         val targetCount = if (currentlyUnread) 0L else 1L
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
-        val updatedUnread = conversation.unreadCounts.toMutableMap().apply {
-            this[uid] = targetCount
-        }
         try {
             convRef.update(
                 mapOf(
-                    "unreadCounts" to updatedUnread,
+                    "unreadCounts.$uid" to targetCount,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -1074,14 +1077,11 @@ class MessagingRepository(
     suspend fun togglePinConversation(conversation: Conversation): Result<Boolean> = runCatching {
         val uid = requireUserId()
         val nowPinned = !conversation.isPinnedBy(uid)
-        val updatedPinned = conversation.pinnedBy.toMutableMap().apply {
-            if (nowPinned) this[uid] = true else remove(uid)
-        }
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
         try {
             convRef.update(
                 mapOf(
-                    "pinnedBy" to updatedPinned,
+                    "pinnedBy.$uid" to if (nowPinned) true else FieldValue.delete(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -1097,14 +1097,11 @@ class MessagingRepository(
     suspend fun toggleMuteConversation(conversation: Conversation): Result<Boolean> = runCatching {
         val uid = requireUserId()
         val nowMuted = !conversation.isMutedBy(uid)
-        val updatedMuted = conversation.mutedBy.toMutableMap().apply {
-            if (nowMuted) this[uid] = true else remove(uid)
-        }
         val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
         try {
             convRef.update(
                 mapOf(
-                    "mutedBy" to updatedMuted,
+                    "mutedBy.$uid" to if (nowMuted) true else FieldValue.delete(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -1141,8 +1138,11 @@ class MessagingRepository(
         val preview = when (message?.type) {
             Message.TYPE_IMAGE -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 Photo"
             Message.TYPE_POLL -> "📊 ${message.pollQuestion ?: message.text}"
-            Message.TYPE_AUDIO -> "🎤 ${message.text}"
-            else -> message?.text.orEmpty()
+            Message.TYPE_AUDIO -> {
+                val sec = message.audioDurationSec.coerceAtLeast(1)
+                "🎤 Voice message (%d:%02d)".format(sec / 60, sec % 60)
+            }
+            else -> if (message?.isEncrypted == true) "🔒 Encrypted message" else message?.text.orEmpty()
         }.take(200)
         val updates = if (message == null) {
             mapOf<String, Any>(
@@ -1232,17 +1232,19 @@ class MessagingRepository(
                 .get()
                 .await()
             if (!msgSnapshot.isEmpty) {
-                db.runBatch { batch ->
-                    msgSnapshot.documents.forEach { msgDoc ->
-                        batch.update(
-                            msgDoc.reference,
-                            mapOf(
-                                "participantIds" to updatedIds,
-                                "updatedAt" to FieldValue.serverTimestamp()
+                msgSnapshot.documents.chunked(450).forEach { chunk ->
+                    db.runBatch { batch ->
+                        chunk.forEach { msgDoc ->
+                            batch.update(
+                                msgDoc.reference,
+                                mapOf(
+                                    "participantIds" to updatedIds,
+                                    "updatedAt" to FieldValue.serverTimestamp()
+                                )
                             )
-                        )
-                    }
-                }.await()
+                        }
+                    }.await()
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -1256,11 +1258,26 @@ class MessagingRepository(
         val uid = requireUserId()
         require(conversation.type == Conversation.TYPE_GROUP) { "Cannot leave a direct chat." }
         val updatedIds = conversation.participantIds.filter { it != uid }
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
+        if (updatedIds.isEmpty()) {
+            if (conversation.createdBy == uid) {
+                try {
+                    convRef.delete().await()
+                    return@runCatching
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.DELETE, convRef.path, auth)
+                    throw e
+                }
+            } else {
+                throw IllegalStateException("You are the last member in this group.")
+            }
+        }
         val updatedNames = conversation.participantNames.toMutableMap().apply { remove(uid) }
         val updatedPhotos = conversation.participantPhotos.toMutableMap().apply { remove(uid) }
         val updatedUnread = conversation.unreadCounts.toMutableMap().apply { remove(uid) }
 
-        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(conversation.id)
         try {
             convRef.update(
                 mapOf(

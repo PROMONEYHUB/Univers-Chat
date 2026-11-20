@@ -117,3 +117,4 @@ object DeviceContactsManager {
             result
         }
 }
+

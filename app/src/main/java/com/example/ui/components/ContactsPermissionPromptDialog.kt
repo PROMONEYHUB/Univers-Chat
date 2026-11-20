@@ -1,38 +1,20 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Contacts
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.ui.theme.TelegramBlue
 
 @Composable
 fun ContactsPermissionPromptDialog(
@@ -41,43 +23,24 @@ fun ContactsPermissionPromptDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(56.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.Contacts,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-        },
         title = {
             Text(
-                text = "Find your contacts on Univers Chat",
+                text = "Sync contacts",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Allow Univers Chat to access your phone contacts so you can connect with people you already know.",
+                    text = "Allow Univers Chat to access your phone contacts to see who is already using the app.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                ContactsBenefitRow(
-                    icon = Icons.Rounded.NotificationsActive,
-                    text = "Get notified instantly when one of your contacts joins Univers Chat."
-                )
-                ContactsBenefitRow(
-                    icon = Icons.Rounded.Lock,
-                    text = "Private by design — numbers are hashed with SHA-256 on your device and never shared publicly."
+                Text(
+                    text = "Phone numbers are hashed on your device before matching and are not shown publicly.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },
@@ -86,14 +49,14 @@ fun ContactsPermissionPromptDialog(
                 onClick = onAllowContacts,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = TelegramBlue,
-                    contentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.onBackground,
+                    contentColor = MaterialTheme.colorScheme.background
                 ),
                 modifier = Modifier
                     .height(48.dp)
                     .testTag("allow_contacts_prompt_button")
             ) {
-                Text("Allow Contacts", fontWeight = FontWeight.Bold)
+                Text("Allow", fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
@@ -103,34 +66,12 @@ fun ContactsPermissionPromptDialog(
                     .height(48.dp)
                     .testTag("dismiss_contacts_prompt_button")
             ) {
-                Text("Not Now", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Not now",
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     )
-}
-
-@Composable
-private fun ContactsBenefitRow(
-    icon: ImageVector,
-    text: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .padding(top = 2.dp)
-                .size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-    }
 }

@@ -445,6 +445,11 @@ class MainMessagingViewModel(
         }
     }
 
+    suspend fun setOnlineStatusSuspend(isOnline: Boolean) {
+        if (Firebase.auth.currentUser == null) return
+        runCatching { repository.setOnlinePresence(isOnline) }
+    }
+
     private companion object {
         const val TAG = "MainMessagingVM"
         const val STOP_TIMEOUT_MILLIS = 5000L

@@ -93,6 +93,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -1092,7 +1093,7 @@ private fun ChatBottomInputRow(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (isRecordingAudio) {
                 val pulseTransition = rememberInfiniteTransition(label = "chat_screen_rec_dot")
-                val dotAlpha by pulseTransition.animateFloat(
+                val dotAlphaState = pulseTransition.animateFloat(
                     initialValue = 0.35f,
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(
@@ -1132,8 +1133,10 @@ private fun ChatBottomInputRow(
                         Icon(
                             imageVector = Icons.Rounded.FiberManualRecord,
                             contentDescription = null,
-                            tint = IosRed.copy(alpha = dotAlpha),
-                            modifier = Modifier.size(12.dp)
+                            tint = IosRed,
+                            modifier = Modifier
+                                .size(12.dp)
+                                .graphicsLayer { alpha = dotAlphaState.value }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(

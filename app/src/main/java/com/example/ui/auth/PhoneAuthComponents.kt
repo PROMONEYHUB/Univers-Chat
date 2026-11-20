@@ -30,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,7 +51,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.ui.components.GlassmorphismCard
 import com.example.ui.components.rememberIosHaptics
 import java.util.Locale
 
@@ -83,29 +83,24 @@ fun OtpDigitBoxes(
                     val char = code.getOrNull(index)?.toString().orEmpty()
                     val isFocusedCell = index == code.length.coerceAtMost(5) && code.length < 6
                     val borderColor = when {
-                        char.isNotEmpty() -> MaterialTheme.colorScheme.primary
-                        isFocusedCell -> MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                        char.isNotEmpty() -> MaterialTheme.colorScheme.onSurface
+                        isFocusedCell -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                         else -> MaterialTheme.colorScheme.outlineVariant
                     }
-                    val isDark = isSystemInDarkTheme()
-                    val containerColor = when {
-                        char.isNotEmpty() -> MaterialTheme.colorScheme.primaryContainer.copy(
-                            alpha = if (isDark) 0.55f else 0.62f
-                        )
-                        isDark -> Color.White.copy(alpha = 0.08f)
-                        else -> Color.White.copy(alpha = 0.68f)
-                    }
+                    val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                        alpha = if (char.isNotEmpty()) 0.85f else 0.55f
+                    )
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .height(54.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(containerColor)
                             .border(
-                                width = if (isFocusedCell || char.isNotEmpty()) 1.5.dp else 0.8.dp,
+                                width = if (isFocusedCell || char.isNotEmpty()) 1.4.dp else 0.8.dp,
                                 color = borderColor,
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(12.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -153,12 +148,13 @@ fun CountryPickerDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        GlassmorphismCard(
-            shape = RoundedCornerShape(24.dp),
-            blurRadius = 22.dp,
-            highlighted = true,
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-            modifier = Modifier.fillMaxWidth()
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(0.7.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(

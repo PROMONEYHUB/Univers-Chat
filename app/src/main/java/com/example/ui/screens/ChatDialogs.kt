@@ -179,28 +179,11 @@ fun CreatePollDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Poll,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Create Live Poll",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        text = "New Poll",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Rounded.Close, contentDescription = "Close poll dialog")
                     }
@@ -324,28 +307,11 @@ fun GroupInfoDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Groups,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (showAddMembers) "Add Members" else "Channel Info",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        text = if (showAddMembers) "Add Members" else "Group Info",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Rounded.Close, contentDescription = "Close info")
                     }
@@ -357,18 +323,18 @@ fun GroupInfoDialog(
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it.take(80) },
-                        label = { Text("Channel Name") },
+                        label = { Text("Group Name") },
                         singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = topic,
                         onValueChange = { topic = it.take(160) },
-                        label = { Text("Topic") },
+                        label = { Text("Description") },
                         singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -378,10 +344,14 @@ fun GroupInfoDialog(
                             onUpdateGroupInfo(title, topic)
                         },
                         enabled = title.trim().isNotEmpty(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.onBackground,
+                            contentColor = MaterialTheme.colorScheme.background
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Save Channel Details")
+                        Text("Save")
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -484,7 +454,7 @@ fun GroupInfoDialog(
                         ) {
                             Icon(Icons.AutoMirrored.Rounded.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Leave Channel")
+                            Text("Leave Group")
                         }
                     }
 
@@ -504,7 +474,7 @@ fun GroupInfoDialog(
                             ) {
                                 Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Delete Channel")
+                                Text("Delete Group")
                             }
                         } else {
                             Row(
@@ -630,28 +600,11 @@ fun GroupCallMemberPickerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = if (isVideoCall) Icons.Rounded.Videocam else Icons.Rounded.Call,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (isVideoCall) "Start HD Video Call" else "Start HD Voice Call",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        text = if (isVideoCall) "Video Call" else "Voice Call",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Rounded.Close, contentDescription = "Close call picker")
                     }
@@ -659,7 +612,7 @@ fun GroupCallMemberPickerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Select a channel member to ring",
+                    text = "Select a group member to call",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -667,7 +620,7 @@ fun GroupCallMemberPickerDialog(
 
                 if (callableMemberIds.isEmpty()) {
                     Text(
-                        text = "Invite another member to this channel first to place a call.",
+                        text = "Add another member to this group first to place a call.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp)

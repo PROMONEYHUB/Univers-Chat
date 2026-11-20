@@ -33,7 +33,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -41,11 +40,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.notifications.InAppMessageBanner
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.LocalUniversAccent
-import com.example.ui.theme.TelegramGreen
+import com.example.ui.theme.OnlinePresenceGreen
 
 /**
- * Dynamic-Island-inspired floating glass notification capsule for live incoming messages.
+ * Clean native heads-up banner for incoming messages while inside the app.
  */
 @Composable
 fun IosInAppNotificationBanner(
@@ -57,7 +55,6 @@ fun IosInAppNotificationBanner(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val accent = LocalUniversAccent.current
 
     Box(
         modifier = modifier
@@ -71,30 +68,25 @@ fun IosInAppNotificationBanner(
             enter = slideInVertically(
                 initialOffsetY = { -it - 40 },
                 animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
                 )
             ) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { -it - 40 }) + fadeOut()
         ) {
             banner?.let { active ->
-                val capsuleShape = RoundedCornerShape(28.dp)
-                val capsuleColor = if (isDark) Color(0xF5111824) else Color(0xFAFFFFFF)
+                val capsuleShape = RoundedCornerShape(18.dp)
+                val capsuleColor = if (isDark) Color(0xFF1A1D24) else Color.White
                 Surface(
                     shape = capsuleShape,
                     color = capsuleColor,
+                    shadowElevation = 6.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(
-                            elevation = 16.dp,
-                            shape = capsuleShape,
-                            ambientColor = accent.primary(isDark).copy(alpha = 0.35f),
-                            spotColor = accent.primary(isDark).copy(alpha = 0.35f)
-                        )
                         .clip(capsuleShape)
                         .border(
-                            width = 1.dp,
-                            color = if (isDark) Color.White.copy(alpha = 0.14f) else accent.primaryLight.copy(alpha = 0.22f),
+                            width = 0.75.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant,
                             shape = capsuleShape
                         )
                         .clickable {
@@ -106,25 +98,16 @@ fun IosInAppNotificationBanner(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 10.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                            .padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.5.dp)
-                                .height(36.dp)
-                                .clip(CircleShape)
-                                .background(accent.brandGradient(isDark))
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
                         UserAvatar(
                             name = active.senderName,
                             photoUrl = active.senderPhotoUrl,
-                            size = 44.dp,
+                            size = 42.dp,
                             isGroup = active.isGroup,
                             showPresence = true,
-                            isOnline = true,
-                            showStoryRing = true
+                            isOnline = true
                         )
                         Spacer(modifier = Modifier.width(11.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -132,7 +115,7 @@ fun IosInAppNotificationBanner(
                                 Text(
                                     text = active.title,
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -143,19 +126,18 @@ fun IosInAppNotificationBanner(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(TelegramGreen)
+                                        .background(OnlinePresenceGreen)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "now",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             val displayBody = if (!showMessagePreview) {
-                                "New encrypted message"
+                                "New message"
                             } else if (active.isGroup) {
                                 "${active.senderName.substringBefore(" ")}: ${active.previewText}"
                             } else {
@@ -173,13 +155,13 @@ fun IosInAppNotificationBanner(
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(accent.brandGradient(isDark))
+                                .background(MaterialTheme.colorScheme.primary)
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "Reply",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.SemiBold,
                                 color = Color.White
                             )
                         }

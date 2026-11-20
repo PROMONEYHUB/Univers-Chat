@@ -1,8 +1,9 @@
 package com.example.ui.viewmodel
 
+import android.app.Application
 import android.content.Context
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.calls.CallAudioController
 import com.example.calls.WebRtcCallEngine
@@ -11,7 +12,9 @@ import com.example.data.model.CallSession
 import com.example.data.model.CallTarget
 import com.example.data.model.UserProfile
 import com.example.data.repository.CallSignalingRepository
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,10 +59,9 @@ class CallViewModel(
     appContext: Context,
     private val repository: CallSignalingRepository,
     val currentUserId: String
-) : ViewModel() {
+) : AndroidViewModel(appContext.applicationContext as Application) {
 
-    private val context = appContext.applicationContext
-    private val audioController = CallAudioController(context)
+    private val audioController = CallAudioController(getApplication())
 
     private val _incomingCall = MutableStateFlow<CallSession?>(null)
     val incomingCall: StateFlow<CallSession?> = _incomingCall.asStateFlow()
@@ -112,6 +115,15 @@ class CallViewModel(
     private fun observeIncomingCalls() {
         viewModelScope.launch {
             repository.observeIncomingRingingCalls(currentUserId)
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    Log.w(TAG, "Incoming call listener error", firestoreError ?: error)
+                    _incomingCall.value = null
+                    audioController.stopRinging()
+                }
                 .collect { ringingList ->
                     val currentActiveId = _callState.value.session?.id
                     val blocked = blockedCallerIds.value
@@ -163,12 +175,19 @@ class CallViewModel(
         iceSendParentJob?.cancel()
         iceSendParentJob = SupervisorJob(viewModelScope.coroutineContext[Job])
 
-        val engine = createEngine(
-            callId = callId,
-            participantIds = listOf(currentUserId, target.userId),
-            isVideoCall = isVideoCall,
-            preset = preset
-        )
+        val engine = try {
+            createEngine(
+                callId = callId,
+                participantIds = listOf(currentUserId, target.userId),
+                isVideoCall = isVideoCall,
+                preset = preset
+            )
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to initialize WebRTC engine for outgoing call", e)
+            _callNotice.value = "Could not initialize call hardware."
+            cleanupCallResources()
+            return
+        }
         rtcEngine = engine
 
         val provisionalSession = CallSession(
@@ -268,12 +287,19 @@ class CallViewModel(
         iceSendParentJob = SupervisorJob(viewModelScope.coroutineContext[Job])
 
         val preset = callSession.qualityEnum()
-        val engine = createEngine(
-            callId = callSession.id,
-            participantIds = callSession.participantIds,
-            isVideoCall = callSession.isVideoCall,
-            preset = preset
-        )
+        val engine = try {
+            createEngine(
+                callId = callSession.id,
+                participantIds = callSession.participantIds,
+                isVideoCall = callSession.isVideoCall,
+                preset = preset
+            )
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to initialize WebRTC engine for incoming call", e)
+            _callNotice.value = "Could not initialize call hardware."
+            cleanupCallResources()
+            return
+        }
         rtcEngine = engine
 
         _callState.value = ActiveCallUiState(
@@ -469,7 +495,7 @@ class CallViewModel(
         preset: CallQualityPreset
     ): WebRtcCallEngine {
         return WebRtcCallEngine(
-            context = context,
+            context = getApplication(),
             isVideoCall = isVideoCall,
             initialQualityPreset = preset,
             onLocalIceCandidate = { sdpMid, sdpMLineIndex, candidate ->
@@ -526,61 +552,79 @@ class CallViewModel(
     private fun startSignalingObservers(callId: String) {
         sessionObserverJob?.cancel()
         sessionObserverJob = viewModelScope.launch {
-            repository.observeCallSession(callId).collect { remoteSession ->
-                if (remoteSession == null) {
+            repository.observeCallSession(callId)
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    Log.w(TAG, "Call session observer error", firestoreError ?: error)
+                    _callNotice.value = "Call connection interrupted."
                     cleanupCallResources()
-                    return@collect
                 }
-                _callState.update {
-                    it.copy(
-                        session = remoteSession,
-                        qualityPreset = remoteSession.qualityEnum()
-                    )
-                }
+                .collect { remoteSession ->
+                    if (remoteSession == null) {
+                        cleanupCallResources()
+                        return@collect
+                    }
+                    _callState.update {
+                        it.copy(
+                            session = remoteSession,
+                            qualityPreset = remoteSession.qualityEnum()
+                        )
+                    }
 
-                if (remoteSession.status == CallSession.STATUS_ACCEPTED &&
-                    !appliedRemoteAnswer &&
-                    !remoteSession.answerSdp.isNullOrBlank()
-                ) {
-                    appliedRemoteAnswer = true
-                    outgoingTimeoutJob?.cancel()
-                    _callState.update { it.copy(phase = CallConnectionPhase.CONNECTING) }
-                    val engine = rtcEngine
-                    if (engine != null) {
-                        runCatching {
-                            withContext(Dispatchers.Default) {
-                                engine.applyRemoteAnswer(remoteSession.answerSdp)
+                    if (remoteSession.status == CallSession.STATUS_ACCEPTED &&
+                        !appliedRemoteAnswer &&
+                        !remoteSession.answerSdp.isNullOrBlank()
+                    ) {
+                        appliedRemoteAnswer = true
+                        outgoingTimeoutJob?.cancel()
+                        _callState.update { it.copy(phase = CallConnectionPhase.CONNECTING) }
+                        val engine = rtcEngine
+                        if (engine != null) {
+                            runCatching {
+                                withContext(Dispatchers.Default) {
+                                    engine.applyRemoteAnswer(remoteSession.answerSdp)
+                                }
+                            }.onFailure { err ->
+                                Log.w(TAG, "Failed to apply remote answer", err)
                             }
-                        }.onFailure { err ->
-                            Log.w(TAG, "Failed to apply remote answer", err)
                         }
                     }
-                }
 
-                if (remoteSession.isTerminal) {
-                    val reason = when (remoteSession.status) {
-                        CallSession.STATUS_DECLINED -> "${remoteSession.peerNameFor(currentUserId)} declined the call"
-                        CallSession.STATUS_MISSED -> "No answer"
-                        else -> "Call ended"
+                    if (remoteSession.isTerminal) {
+                        val reason = when (remoteSession.status) {
+                            CallSession.STATUS_DECLINED -> "${remoteSession.peerNameFor(currentUserId)} declined the call"
+                            CallSession.STATUS_MISSED -> "No answer"
+                            else -> "Call ended"
+                        }
+                        if (remoteSession.endedBy != currentUserId) {
+                            _callNotice.value = reason
+                        }
+                        cleanupCallResources()
                     }
-                    if (remoteSession.endedBy != currentUserId) {
-                        _callNotice.value = reason
-                    }
-                    cleanupCallResources()
                 }
-            }
         }
 
         candidatesObserverJob?.cancel()
         candidatesObserverJob = viewModelScope.launch {
-            repository.observeRemoteCandidates(callId, currentUserId).collect { candidates ->
-                val engine = rtcEngine ?: return@collect
-                candidates.forEach { candidate ->
-                    if (candidate.id.isNotBlank() && appliedCandidateIds.add(candidate.id)) {
-                        engine.addRemoteIceCandidate(candidate)
+            repository.observeRemoteCandidates(callId, currentUserId)
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    Log.w(TAG, "Remote ICE candidates observer error", firestoreError ?: error)
+                }
+                .collect { candidates ->
+                    val engine = rtcEngine ?: return@collect
+                    candidates.forEach { candidate ->
+                        if (candidate.id.isNotBlank() && appliedCandidateIds.add(candidate.id)) {
+                            engine.addRemoteIceCandidate(candidate)
+                        }
                     }
                 }
-            }
         }
     }
 
@@ -629,8 +673,14 @@ class CallViewModel(
         candidatesObserverJob?.cancel()
         candidatesObserverJob = null
 
-        rtcEngine?.dispose()
+        val engineToDispose = rtcEngine
         rtcEngine = null
+        if (engineToDispose != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { engineToDispose.dispose() }
+                    .onFailure { Log.w(TAG, "Error disposing WebRTC engine", it) }
+            }
+        }
         audioController.stopCallAudio()
 
         appliedCandidateIds.clear()

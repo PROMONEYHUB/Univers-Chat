@@ -1,5 +1,7 @@
 package com.example.data.model
 
+import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
@@ -17,8 +19,8 @@ enum class CallQualityPreset(
 ) {
     HD_720P(
         wireValue = "HD_720P",
-        label = "HD 720p · 30fps",
-        shortBadge = "HD 720p",
+        label = "720p · 30fps",
+        shortBadge = "720p",
         captureWidth = 1280,
         captureHeight = 720,
         fps = 30,
@@ -27,8 +29,8 @@ enum class CallQualityPreset(
     ),
     FHD_1080P(
         wireValue = "FHD_1080P",
-        label = "Full HD 1080p · 30fps",
-        shortBadge = "FHD 1080p",
+        label = "1080p · 30fps",
+        shortBadge = "1080p",
         captureWidth = 1920,
         captureHeight = 1080,
         fps = 30,
@@ -37,8 +39,8 @@ enum class CallQualityPreset(
     ),
     HD_VOICE(
         wireValue = "HD_VOICE",
-        label = "HD Opus · 48kHz",
-        shortBadge = "HD Opus",
+        label = "Voice",
+        shortBadge = "Voice",
         captureWidth = 0,
         captureHeight = 0,
         fps = 0,
@@ -53,6 +55,8 @@ enum class CallQualityPreset(
     }
 }
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class CallSession(
     @DocumentId val id: String = "",
@@ -107,6 +111,8 @@ data class CallSession(
     }
 }
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class IceCandidateSignal(
     @DocumentId val id: String = "",
@@ -119,6 +125,7 @@ data class IceCandidateSignal(
     @ServerTimestamp val createdAt: Timestamp? = null
 )
 
+@Immutable
 data class CallTarget(
     val userId: String,
     val displayName: String,

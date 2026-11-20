@@ -11,12 +11,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -80,12 +86,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -104,7 +110,9 @@ import com.example.contacts.DeviceContactsManager
 import com.example.crypto.E2eeKeyManager
 import com.example.data.model.CallSession
 import com.example.data.model.CallTarget
+import com.example.data.model.Conversation
 import com.example.data.model.UiState
+import com.example.data.model.UserProfile
 import com.example.data.model.buildDirectConversationId
 import com.example.data.repository.CallSignalingRepository
 import com.example.data.repository.MessagingRepository
@@ -118,11 +126,10 @@ import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.signOut
 import com.example.ui.components.ContactsPermissionPromptDialog
 import com.example.ui.components.IosInAppNotificationBanner
-import com.example.ui.components.LocalTelegramWallpaper
 import com.example.ui.components.TelegramChatWallpaper
 import com.example.ui.components.TelegramLogoMark
 import com.example.ui.components.TelegramPreferencesState
-import com.example.ui.components.UniversAnimatedSplashOverlay
+import com.example.ui.components.UniversMotion
 import com.example.ui.components.rememberIosHaptics
 import com.example.ui.screens.CallHostOverlay
 import com.example.ui.screens.ChatRoomScreen
@@ -132,8 +139,8 @@ import com.example.ui.screens.PeopleScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.TelegramDrawerContent
 import com.example.ui.screens.UserProfileDetailScreen
+import com.example.ui.theme.AppTheme
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.PulseChatTheme
 import com.example.ui.viewmodel.CallViewModel
 import com.example.ui.viewmodel.ChatRoomViewModel
 import com.example.ui.viewmodel.MainMessagingViewModel
@@ -166,16 +173,13 @@ class MainActivity : ComponentActivity() {
             val themePrefs = remember(context) { TelegramPreferencesState(context) }
             val resolvedDark = themePrefs.nightModeOverride ?: isSystemInDarkTheme()
 
-            PulseChatTheme(
-                darkTheme = resolvedDark,
-                accentTheme = themePrefs.accentTheme
+            AppTheme(
+                darkTheme = resolvedDark
             ) {
-                CompositionLocalProvider(LocalTelegramWallpaper provides themePrefs.wallpaperStyle) {
-                    PulseChatApp(
-                        themePrefs = themePrefs,
-                        isDark = resolvedDark
-                    )
-                }
+                PulseChatApp(
+                    themePrefs = themePrefs,
+                    isDark = resolvedDark
+                )
             }
         }
     }
@@ -208,8 +212,6 @@ fun PulseChatApp(
     val auth = Firebase.auth
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val user = currentUser
-    var showLaunchSplash by rememberSaveable { mutableStateOf(true) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         if (user == null) {
             LaunchedEffect(Unit) {
@@ -226,11 +228,6 @@ fun PulseChatApp(
                 )
             }
         }
-
-        UniversAnimatedSplashOverlay(
-            visible = showLaunchSplash,
-            onFinished = { showLaunchSplash = false }
-        )
     }
 }
 
@@ -242,7 +239,6 @@ private fun AuthenticatedShell(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val mainViewModel: MainMessagingViewModel = viewModel(
         key = currentUserId,
@@ -438,9 +434,9 @@ private fun AuthenticatedShell(
             executePendingCall(action)
         } else {
             callPermissionMessage = if (action.needsCamera) {
-                "Camera and Microphone permissions are required to place or answer HD Video calls."
+                "Camera and microphone permissions are required for video calls."
             } else {
-                "Microphone permission is required to place or answer HD Voice calls."
+                "Microphone permission is required for voice calls."
             }
         }
     }
@@ -479,9 +475,11 @@ private fun AuthenticatedShell(
         callViewModel.hangUp()
         MessageNotificationCoordinator.stopObserving()
         RealtimeMessagingService.syncServiceState(context, shouldRun = false)
-        mainViewModel.setOnlineStatus(false)
         TelegramOtpClient.clearSavedSessionJwt(context)
-        signOut(credentialManager, coroutineScope)
+        signOut(
+            scope = coroutineScope,
+            beforeSignOut = { mainViewModel.setOnlineStatusSuspend(false) }
+        )
     }
 
     val allConversations = (conversationsState as? UiState.Success)?.data.orEmpty()
@@ -506,7 +504,7 @@ private fun AuthenticatedShell(
                 .filter {
                     it.userId != currentUserId &&
                         it.userId !in blockedUserIds &&
-                        !it.phoneHash.isNullOrBlank() &&
+                        it.phoneHash.isNotBlank() &&
                         it.phoneHash in allContactHashes
                 }
                 .map { it.userId }
@@ -588,8 +586,8 @@ private fun AuthenticatedShell(
 
                     val viewingUserId = expandedViewingUserId
                     if (viewingUserId != null) {
-                        val viewedProfile = remember(viewingUserId, allPeople) {
-                            allPeople.firstOrNull { it.userId == viewingUserId }
+                        val viewedProfile = remember(viewingUserId, allPeople, allConversations, currentUserProfile) {
+                            resolveTargetUserProfile(viewingUserId, allPeople, allConversations, currentUserProfile)
                         }
                         UserProfileDetailScreen(
                             profile = viewedProfile,
@@ -805,10 +803,6 @@ private fun AuthenticatedShell(
                             onUnblockUser = { targetId -> mainViewModel.setUserBlocked(targetId, false) },
                             isNightMode = isDark,
                             onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
-                            wallpaperStyle = themePrefs.wallpaperStyle,
-                            onSelectWallpaper = themePrefs::selectWallpaper,
-                            accentTheme = themePrefs.accentTheme,
-                            onSelectAccentTheme = themePrefs::selectAccentTheme,
                             onOpenNotifications = { expandedShowNotifications = true },
                             unreadNotificationsCount = totalUnread,
                             onOpenSavedMessages = currentUserProfile?.let { me ->
@@ -860,7 +854,13 @@ private fun AuthenticatedShell(
                     containerColor = MaterialTheme.colorScheme.background,
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     bottomBar = {
-                        if (showTopLevelNav && !isMedium) {
+                        AnimatedVisibility(
+                            visible = showTopLevelNav && !isMedium,
+                            enter = fadeIn(tween(180, easing = UniversMotion.FluidOutEasing)) +
+                                expandVertically(tween(220, easing = UniversMotion.FluidOutEasing)),
+                            exit = fadeOut(tween(140)) +
+                                shrinkVertically(tween(180, easing = UniversMotion.FluidOutEasing))
+                        ) {
                             UniversBottomNavigationBar(
                                 selectedRoute = currentRoute,
                                 totalUnread = totalUnread,
@@ -888,10 +888,52 @@ private fun AuthenticatedShell(
                         NavHost(
                             navController = navController,
                             startDestination = Routes.CHATS,
-                            enterTransition = { fadeIn(tween(160, easing = FastOutSlowInEasing)) },
-                            exitTransition = { fadeOut(tween(140, easing = FastOutSlowInEasing)) },
-                            popEnterTransition = { fadeIn(tween(160, easing = FastOutSlowInEasing)) },
-                            popExitTransition = { fadeOut(tween(140, easing = FastOutSlowInEasing)) },
+                            enterTransition = {
+                                fadeIn(tween(UniversMotion.TAB_SWITCH_MS, easing = UniversMotion.FluidOutEasing)) +
+                                    scaleIn(
+                                        initialScale = 0.985f,
+                                        animationSpec = tween(UniversMotion.TAB_SWITCH_MS, easing = UniversMotion.FluidOutEasing)
+                                    )
+                            },
+                            exitTransition = {
+                                val pushingDetail = targetState.destination.route in setOf(
+                                    Routes.CHAT_ROOM,
+                                    Routes.NOTIFICATIONS,
+                                    Routes.USER_PROFILE
+                                )
+                                if (pushingDetail) {
+                                    slideOutHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing),
+                                        targetOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeOut(
+                                        animationSpec = tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.SoftInOutEasing),
+                                        targetAlpha = 0.82f
+                                    )
+                                } else {
+                                    fadeOut(tween(130, easing = UniversMotion.SoftInOutEasing))
+                                }
+                            },
+                            popEnterTransition = {
+                                val poppingFromDetail = initialState.destination.route in setOf(
+                                    Routes.CHAT_ROOM,
+                                    Routes.NOTIFICATIONS,
+                                    Routes.USER_PROFILE
+                                )
+                                if (poppingFromDetail) {
+                                    slideInHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing),
+                                        initialOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeIn(
+                                        animationSpec = tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing),
+                                        initialAlpha = 0.82f
+                                    )
+                                } else {
+                                    fadeIn(tween(UniversMotion.TAB_SWITCH_MS, easing = UniversMotion.FluidOutEasing))
+                                }
+                            },
+                            popExitTransition = {
+                                fadeOut(tween(130, easing = UniversMotion.SoftInOutEasing))
+                            },
                             modifier = Modifier.weight(1f).fillMaxHeight()
                         ) {
                             composable(Routes.CHATS) {
@@ -1003,10 +1045,6 @@ private fun AuthenticatedShell(
                                     onBack = { navController.popBackStack() },
                                     isNightMode = isDark,
                                     onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
-                                    wallpaperStyle = themePrefs.wallpaperStyle,
-                                    onSelectWallpaper = themePrefs::selectWallpaper,
-                                    accentTheme = themePrefs.accentTheme,
-                                    onSelectAccentTheme = themePrefs::selectAccentTheme,
                                     onOpenNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
                                     unreadNotificationsCount = totalUnread,
                                     onOpenSavedMessages = currentUserProfile?.let { me ->
@@ -1024,14 +1062,26 @@ private fun AuthenticatedShell(
                                 enterTransition = {
                                     slideIntoContainer(
                                         AnimatedContentTransitionScope.SlideDirection.Start,
-                                        tween(220, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(tween(180))
+                                        tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing)
+                                    ) + fadeIn(tween(200, easing = UniversMotion.FluidOutEasing))
+                                },
+                                exitTransition = {
+                                    slideOutHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing),
+                                        targetOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeOut(tween(200), targetAlpha = 0.84f)
+                                },
+                                popEnterTransition = {
+                                    slideInHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing),
+                                        initialOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeIn(tween(200), initialAlpha = 0.84f)
                                 },
                                 popExitTransition = {
                                     slideOutOfContainer(
                                         AnimatedContentTransitionScope.SlideDirection.End,
-                                        tween(210, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(tween(160))
+                                        tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing)
+                                    ) + fadeOut(tween(180, easing = UniversMotion.SoftInOutEasing))
                                 }
                             ) {
                                 NotificationsScreen(
@@ -1077,15 +1127,33 @@ private fun AuthenticatedShell(
                                 route = Routes.USER_PROFILE,
                                 arguments = listOf(navArgument("userId") { type = NavType.StringType }),
                                 enterTransition = {
-                                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(240)) + fadeIn(tween(200))
+                                    slideIntoContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.Start,
+                                        tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing)
+                                    ) + fadeIn(tween(200, easing = UniversMotion.FluidOutEasing))
+                                },
+                                exitTransition = {
+                                    slideOutHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing),
+                                        targetOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeOut(tween(200), targetAlpha = 0.84f)
+                                },
+                                popEnterTransition = {
+                                    slideInHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing),
+                                        initialOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeIn(tween(200), initialAlpha = 0.84f)
                                 },
                                 popExitTransition = {
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(220)) + fadeOut(tween(180))
+                                    slideOutOfContainer(
+                                        AnimatedContentTransitionScope.SlideDirection.End,
+                                        tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing)
+                                    ) + fadeOut(tween(180, easing = UniversMotion.SoftInOutEasing))
                                 }
                             ) { entry ->
                                 val targetUserId = entry.arguments?.getString("userId").orEmpty()
-                                val targetProfile = remember(targetUserId, allPeople) {
-                                    allPeople.firstOrNull { it.userId == targetUserId }
+                                val targetProfile = remember(targetUserId, allPeople, allConversations, currentUserProfile) {
+                                    resolveTargetUserProfile(targetUserId, allPeople, allConversations, currentUserProfile)
                                 }
                                 UserProfileDetailScreen(
                                     profile = targetProfile,
@@ -1136,19 +1204,25 @@ private fun AuthenticatedShell(
                                 enterTransition = {
                                     slideIntoContainer(
                                         AnimatedContentTransitionScope.SlideDirection.Start,
-                                        tween(220, easing = FastOutSlowInEasing)
+                                        tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing)
                                     )
                                 },
                                 exitTransition = {
-                                    fadeOut(tween(160))
+                                    slideOutHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_ENTER_MS, easing = UniversMotion.FluidOutEasing),
+                                        targetOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeOut(tween(200), targetAlpha = 0.84f)
                                 },
                                 popEnterTransition = {
-                                    fadeIn(tween(160))
+                                    slideInHorizontally(
+                                        animationSpec = tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing),
+                                        initialOffsetX = { -(it * 0.22f).toInt() }
+                                    ) + fadeIn(tween(200), initialAlpha = 0.84f)
                                 },
                                 popExitTransition = {
                                     slideOutOfContainer(
                                         AnimatedContentTransitionScope.SlideDirection.End,
-                                        tween(210, easing = FastOutSlowInEasing)
+                                        tween(UniversMotion.PUSH_EXIT_MS, easing = UniversMotion.FluidOutEasing)
                                     )
                                 }
                             ) { entry ->
@@ -1196,7 +1270,6 @@ private fun AuthenticatedShell(
                         TelegramDrawerContent(
                             currentUserProfile = currentUserProfile,
                             userEmailOrPhone = userEmailOrPhone,
-                            wallpaperStyle = themePrefs.wallpaperStyle,
                             onToggleNightMode = { themePrefs.toggleNightMode(isDark) },
                             onNewGroupClick = {
                                 coroutineScope.launch { drawerState.close() }
@@ -1221,9 +1294,6 @@ private fun AuthenticatedShell(
                             onSettingsClick = {
                                 coroutineScope.launch { drawerState.close() }
                                 navigateTopLevel(Routes.PROFILE)
-                            },
-                            onCycleWallpaperClick = {
-                                themePrefs.cycleWallpaper()
                             },
                             onSignOutClick = {
                                 coroutineScope.launch { drawerState.close() }
@@ -1279,7 +1349,7 @@ private fun AuthenticatedShell(
         callPermissionMessage?.let { message ->
             AlertDialog(
                 onDismissRequest = { callPermissionMessage = null },
-                title = { Text("Permission needed for HD Calls") },
+                title = { Text("Permission needed for calls") },
                 text = { Text(message) },
                 confirmButton = {
                     TextButton(onClick = { callPermissionMessage = null }) {
@@ -1352,12 +1422,16 @@ private fun UniversBottomNavigationBar(
 ) {
     val haptics = rememberIosHaptics()
     val itemColors = NavigationBarItemDefaults.colors(
-        selectedIconColor = MaterialTheme.colorScheme.primary,
-        selectedTextColor = MaterialTheme.colorScheme.primary,
-        indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+        selectedIconColor = MaterialTheme.colorScheme.onBackground,
+        selectedTextColor = MaterialTheme.colorScheme.onBackground,
+        indicatorColor = Color.Transparent,
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
+
+    val chatsSelected = selectedRoute == Routes.CHATS
+    val peopleSelected = selectedRoute == Routes.PEOPLE
+    val profileSelected = selectedRoute == Routes.PROFILE
 
     Column {
         HorizontalDivider(
@@ -1365,13 +1439,13 @@ private fun UniversBottomNavigationBar(
             color = MaterialTheme.colorScheme.outlineVariant
         )
         NavigationBar(
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = MaterialTheme.colorScheme.background,
             tonalElevation = 0.dp
         ) {
             NavigationBarItem(
-                selected = selectedRoute == Routes.CHATS,
+                selected = chatsSelected,
                 onClick = {
-                    if (selectedRoute != Routes.CHATS) haptics.selectionTick()
+                    if (!chatsSelected) haptics.selectionTick()
                     onSelectRoute(Routes.CHATS)
                 },
                 colors = itemColors,
@@ -1380,8 +1454,8 @@ private fun UniversBottomNavigationBar(
                         badge = {
                             if (totalUnread > 0L) {
                                 Badge(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = Color.White
+                                    containerColor = MaterialTheme.colorScheme.onBackground,
+                                    contentColor = MaterialTheme.colorScheme.background
                                 ) {
                                     Text(if (totalUnread > 99L) "99+" else totalUnread.toString())
                                 }
@@ -1389,44 +1463,59 @@ private fun UniversBottomNavigationBar(
                         }
                     ) {
                         Icon(
-                            imageVector = if (selectedRoute == Routes.CHATS) Icons.AutoMirrored.Rounded.Chat else Icons.AutoMirrored.Outlined.Chat,
+                            imageVector = if (chatsSelected) Icons.AutoMirrored.Rounded.Chat else Icons.AutoMirrored.Outlined.Chat,
                             contentDescription = "Chats"
                         )
                     }
                 },
-                label = { Text("Chats", fontWeight = FontWeight.SemiBold) },
+                label = {
+                    Text(
+                        text = "Chats",
+                        fontWeight = if (chatsSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                },
                 modifier = Modifier.testTag("bottom_nav_chats")
             )
             NavigationBarItem(
-                selected = selectedRoute == Routes.PEOPLE,
+                selected = peopleSelected,
                 onClick = {
-                    if (selectedRoute != Routes.PEOPLE) haptics.selectionTick()
+                    if (!peopleSelected) haptics.selectionTick()
                     onSelectRoute(Routes.PEOPLE)
                 },
                 colors = itemColors,
                 icon = {
                     Icon(
-                        imageVector = if (selectedRoute == Routes.PEOPLE) Icons.Rounded.Groups else Icons.Outlined.Groups,
+                        imageVector = if (peopleSelected) Icons.Rounded.Groups else Icons.Outlined.Groups,
                         contentDescription = "Contacts"
                     )
                 },
-                label = { Text("Contacts", fontWeight = FontWeight.SemiBold) },
+                label = {
+                    Text(
+                        text = "Contacts",
+                        fontWeight = if (peopleSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                },
                 modifier = Modifier.testTag("bottom_nav_people")
             )
             NavigationBarItem(
-                selected = selectedRoute == Routes.PROFILE,
+                selected = profileSelected,
                 onClick = {
-                    if (selectedRoute != Routes.PROFILE) haptics.selectionTick()
+                    if (!profileSelected) haptics.selectionTick()
                     onSelectRoute(Routes.PROFILE)
                 },
                 colors = itemColors,
                 icon = {
                     Icon(
-                        imageVector = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Settings else Icons.Outlined.Settings,
+                        imageVector = if (profileSelected) Icons.Rounded.Settings else Icons.Outlined.Settings,
                         contentDescription = "Settings"
                     )
                 },
-                label = { Text("Settings", fontWeight = FontWeight.SemiBold) },
+                label = {
+                    Text(
+                        text = "Settings",
+                        fontWeight = if (profileSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                },
                 modifier = Modifier.testTag("bottom_nav_profile")
             )
         }
@@ -1443,15 +1532,15 @@ private fun PulseNavigationRail(
 ) {
     val haptics = rememberIosHaptics()
     val railItemColors = NavigationRailItemDefaults.colors(
-        selectedIconColor = MaterialTheme.colorScheme.primary,
-        selectedTextColor = MaterialTheme.colorScheme.primary,
-        indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+        selectedIconColor = MaterialTheme.colorScheme.onBackground,
+        selectedTextColor = MaterialTheme.colorScheme.onBackground,
+        indicatorColor = Color.Transparent,
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
     NavigationRail(
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.background,
         header = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1471,8 +1560,8 @@ private fun PulseNavigationRail(
                     badge = {
                         if (totalUnread > 0L) {
                             Badge(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.onBackground,
+                                contentColor = MaterialTheme.colorScheme.background
                             ) {
                                 Text(if (totalUnread > 99L) "99+" else totalUnread.toString())
                             }
@@ -1485,7 +1574,7 @@ private fun PulseNavigationRail(
                     )
                 }
             },
-            label = { Text("Chats", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Chats", fontWeight = FontWeight.Medium) },
             modifier = Modifier.testTag("nav_chats")
         )
         NavigationRailItem(
@@ -1501,7 +1590,7 @@ private fun PulseNavigationRail(
                     contentDescription = "Contacts"
                 )
             },
-            label = { Text("Contacts", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Contacts", fontWeight = FontWeight.Medium) },
             modifier = Modifier.testTag("nav_people")
         )
         NavigationRailItem(
@@ -1513,11 +1602,11 @@ private fun PulseNavigationRail(
             colors = railItemColors,
             icon = {
                 Icon(
-                    imageVector = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Person else Icons.Outlined.Person,
-                    contentDescription = "Profile"
+                    imageVector = if (selectedRoute == Routes.PROFILE) Icons.Rounded.Settings else Icons.Outlined.Settings,
+                    contentDescription = "Settings"
                 )
             },
-            label = { Text("Profile", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Settings", fontWeight = FontWeight.Medium) },
             modifier = Modifier.testTag("nav_profile")
         )
 
@@ -1535,9 +1624,34 @@ private fun PulseNavigationRail(
         ) {
             Icon(
                 imageVector = if (isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                contentDescription = if (isDark) "Switch to Day theme" else "Switch to Night theme",
+                contentDescription = if (isDark) "Switch to light mode" else "Switch to dark mode",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
+
+private fun resolveTargetUserProfile(
+    targetUserId: String,
+    allPeople: List<UserProfile>,
+    allConversations: List<Conversation>,
+    currentUserProfile: UserProfile?
+): UserProfile? {
+    if (targetUserId.isBlank()) return null
+    allPeople.firstOrNull { it.userId == targetUserId }?.let { return it }
+    if (currentUserProfile?.userId == targetUserId) return currentUserProfile
+    val fallbackConv = allConversations.firstOrNull { targetUserId in it.participantIds } ?: return null
+    val name = fallbackConv.participantNames[targetUserId]?.takeIf { it.isNotBlank() } ?: "Member"
+    val photo = fallbackConv.participantPhotos[targetUserId].orEmpty()
+    return UserProfile(
+        id = targetUserId,
+        userId = targetUserId,
+        displayName = name,
+        handle = "",
+        bio = "",
+        photoUrl = photo,
+        isOnline = false,
+        isDiscoverable = false
+    )
+}
+

@@ -72,14 +72,18 @@ object E2eeKeyManager {
 
             val fresh = generateEcKeyPair()
             val encodedPub = Base64.encodeToString(fresh.public.encoded, Base64.NO_WRAP)
-            val wrappedPriv = Base64.encodeToString(
-                wrapWithMasterKey(fresh.private.encoded),
-                Base64.NO_WRAP
-            )
-            prefs.edit()
-                .putString(pubPrefKey(userId), encodedPub)
-                .putString(privPrefKey(userId), wrappedPriv)
-                .apply()
+            runCatching {
+                val wrappedPriv = Base64.encodeToString(
+                    wrapWithMasterKey(fresh.private.encoded),
+                    Base64.NO_WRAP
+                )
+                prefs.edit()
+                    .putString(pubPrefKey(userId), encodedPub)
+                    .putString(privPrefKey(userId), wrappedPriv)
+                    .apply()
+            }.onFailure { err ->
+                Log.w(TAG, "Unable to persist wrapped E2EE keypair; keeping in-memory session key", err)
+            }
 
             identityCache[userId] = fresh
             return fresh
@@ -87,8 +91,12 @@ object E2eeKeyManager {
     }
 
     fun getPublicIdentityKeyBase64(context: Context, userId: String): String {
-        val kp = getOrCreateIdentityKeyPair(context, userId)
-        return Base64.encodeToString(kp.public.encoded, Base64.NO_WRAP)
+        return runCatching {
+            val kp = getOrCreateIdentityKeyPair(context, userId)
+            Base64.encodeToString(kp.public.encoded, Base64.NO_WRAP)
+        }.onFailure { err ->
+            Log.w(TAG, "Failed to derive public E2EE identity key", err)
+        }.getOrDefault("")
     }
 
     fun generateEcKeyPair(): KeyPair {
@@ -192,9 +200,15 @@ object E2eeKeyManager {
         return digits.toString()
     }
 
-    private fun getOrCreateMasterKey(): SecretKey {
+    private fun getOrCreateMasterKey(forceRegenerate: Boolean = false): SecretKey {
         val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
-        (ks.getKey(MASTER_KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        if (forceRegenerate) {
+            runCatching { ks.deleteEntry(MASTER_KEY_ALIAS) }
+        } else {
+            runCatching { ks.getKey(MASTER_KEY_ALIAS, null) as? SecretKey }
+                .getOrNull()
+                ?.let { return it }
+        }
 
         val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER)
         val spec = KeyGenParameterSpec.Builder(
@@ -211,7 +225,12 @@ object E2eeKeyManager {
 
     private fun wrapWithMasterKey(plaintext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
+        } catch (e: Exception) {
+            Log.w(TAG, "Master key init failed; regenerating Keystore master key", e)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey(forceRegenerate = true))
+        }
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(plaintext)
         return ByteArray(iv.size + ciphertext.size).apply {

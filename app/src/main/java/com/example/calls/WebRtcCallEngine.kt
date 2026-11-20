@@ -29,9 +29,9 @@ import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
 class WebRtcCallEngine(
     context: Context,
@@ -165,7 +165,11 @@ class WebRtcCallEngine(
 
         setupLocalAudioTrack()
         if (isVideoCall) {
-            setupLocalVideoTrack()
+            runCatching {
+                setupLocalVideoTrack()
+            }.onFailure { err ->
+                Log.w(TAG, "Local video track setup failed; continuing with audio only", err)
+            }
         }
         applyBitrateParameters(currentQualityPreset)
     }
@@ -227,29 +231,38 @@ class WebRtcCallEngine(
     }
 
     private fun attachRemoteVideoTrack(track: VideoTrack) {
-        val previous = remoteVideoTrack
-        if (previous != null && previous !== track) {
-            remoteRenderer?.let { previous.removeSink(it) }
+        if (isDisposed) return
+        runCatching {
+            val previous = remoteVideoTrack
+            if (previous != null && previous !== track) {
+                remoteRenderer?.let { previous.removeSink(it) }
+            }
+            remoteVideoTrack = track
+            track.setEnabled(true)
+            remoteRenderer?.let { renderer ->
+                track.addSink(renderer)
+            }
+            onRemoteVideoTrackChanged(true)
+        }.onFailure { err ->
+            Log.w(TAG, "Failed to attach remote video track", err)
         }
-        remoteVideoTrack = track
-        track.setEnabled(true)
-        remoteRenderer?.let { renderer ->
-            track.addSink(renderer)
-        }
-        onRemoteVideoTrackChanged(true)
     }
 
     fun attachLocalRenderer(renderer: SurfaceViewRenderer) {
         if (isDisposed || localRenderer === renderer) return
-        localRenderer?.let { old -> localVideoTrack?.removeSink(old) }
-        initRenderer(renderer, mirror = isFrontCamera, overlay = true)
-        localRenderer = renderer
-        localVideoTrack?.addSink(renderer)
+        runCatching {
+            localRenderer?.let { old -> localVideoTrack?.removeSink(old) }
+            initRenderer(renderer, mirror = isFrontCamera, overlay = true)
+            localRenderer = renderer
+            localVideoTrack?.addSink(renderer)
+        }.onFailure { err ->
+            Log.w(TAG, "Failed to attach local video renderer", err)
+        }
     }
 
     fun detachLocalRenderer(renderer: SurfaceViewRenderer) {
         if (localRenderer === renderer) {
-            localVideoTrack?.removeSink(renderer)
+            runCatching { localVideoTrack?.removeSink(renderer) }
             runCatching { renderer.release() }
             localRenderer = null
         }
@@ -257,15 +270,19 @@ class WebRtcCallEngine(
 
     fun attachRemoteRenderer(renderer: SurfaceViewRenderer) {
         if (isDisposed || remoteRenderer === renderer) return
-        remoteRenderer?.let { old -> remoteVideoTrack?.removeSink(old) }
-        initRenderer(renderer, mirror = false, overlay = false)
-        remoteRenderer = renderer
-        remoteVideoTrack?.addSink(renderer)
+        runCatching {
+            remoteRenderer?.let { old -> remoteVideoTrack?.removeSink(old) }
+            initRenderer(renderer, mirror = false, overlay = false)
+            remoteRenderer = renderer
+            remoteVideoTrack?.addSink(renderer)
+        }.onFailure { err ->
+            Log.w(TAG, "Failed to attach remote video renderer", err)
+        }
     }
 
     fun detachRemoteRenderer(renderer: SurfaceViewRenderer) {
         if (remoteRenderer === renderer) {
-            remoteVideoTrack?.removeSink(renderer)
+            runCatching { remoteVideoTrack?.removeSink(renderer) }
             runCatching { renderer.release() }
             remoteRenderer = null
         }
@@ -286,19 +303,22 @@ class WebRtcCallEngine(
     }
 
     suspend fun createOfferSdp(): String {
+        if (isDisposed) error("WebRTC engine disposed")
         val pc = peerConnection ?: error("PeerConnection unavailable")
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (isVideoCall) "true" else "false"))
         }
-        val rawOffer = suspendCoroutine<SessionDescription> { cont ->
+        val rawOffer = suspendCancellableCoroutine<SessionDescription> { cont ->
             pc.createOffer(object : SimpleSdpObserver() {
                 override fun onCreateSuccess(sdp: SessionDescription?) {
+                    if (!cont.isActive) return
                     if (sdp != null) cont.resume(sdp)
                     else cont.resumeWithException(IllegalStateException("Empty SDP offer"))
                 }
 
                 override fun onCreateFailure(error: String?) {
+                    if (!cont.isActive) return
                     cont.resumeWithException(IllegalStateException(error ?: "Failed to create SDP offer"))
                 }
             }, constraints)
@@ -311,6 +331,7 @@ class WebRtcCallEngine(
     }
 
     suspend fun acceptRemoteOfferAndCreateAnswer(offerSdp: String): String {
+        if (isDisposed) error("WebRTC engine disposed")
         val pc = peerConnection ?: error("PeerConnection unavailable")
         setRemoteDescription(SessionDescription(SessionDescription.Type.OFFER, offerSdp))
 
@@ -318,14 +339,16 @@ class WebRtcCallEngine(
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (isVideoCall) "true" else "false"))
         }
-        val rawAnswer = suspendCoroutine<SessionDescription> { cont ->
+        val rawAnswer = suspendCancellableCoroutine<SessionDescription> { cont ->
             pc.createAnswer(object : SimpleSdpObserver() {
                 override fun onCreateSuccess(sdp: SessionDescription?) {
+                    if (!cont.isActive) return
                     if (sdp != null) cont.resume(sdp)
                     else cont.resumeWithException(IllegalStateException("Empty SDP answer"))
                 }
 
                 override fun onCreateFailure(error: String?) {
+                    if (!cont.isActive) return
                     cont.resumeWithException(IllegalStateException(error ?: "Failed to create SDP answer"))
                 }
             }, constraints)
@@ -349,31 +372,37 @@ class WebRtcCallEngine(
         if (!isRemoteDescriptionSet) {
             pendingRemoteCandidates.add(ice)
         } else {
-            peerConnection?.addIceCandidate(ice)
+            runCatching { peerConnection?.addIceCandidate(ice) }
         }
     }
 
     fun setMicrophoneMuted(muted: Boolean) {
-        localAudioTrack?.setEnabled(!muted)
+        if (isDisposed) return
+        runCatching { localAudioTrack?.setEnabled(!muted) }
     }
 
     fun setCameraEnabled(enabled: Boolean) {
-        localVideoTrack?.setEnabled(enabled)
+        if (isDisposed) return
+        runCatching { localVideoTrack?.setEnabled(enabled) }
     }
 
     fun switchCamera() {
+        if (isDisposed) return
         val capturer = videoCapturer ?: return
-        capturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
-            override fun onCameraSwitchDone(isFront: Boolean) {
-                isFrontCamera = isFront
-                localRenderer?.setMirror(isFront)
-                onFacingChanged(isFront)
-            }
+        runCatching {
+            capturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+                override fun onCameraSwitchDone(isFront: Boolean) {
+                    if (isDisposed) return
+                    isFrontCamera = isFront
+                    runCatching { localRenderer?.setMirror(isFront) }
+                    onFacingChanged(isFront)
+                }
 
-            override fun onCameraSwitchError(errorDescription: String?) {
-                Log.w(TAG, "Camera switch error: $errorDescription")
-            }
-        })
+                override fun onCameraSwitchError(errorDescription: String?) {
+                    Log.w(TAG, "Camera switch error: $errorDescription")
+                }
+            })
+        }
     }
 
     fun updateQualityPreset(preset: CallQualityPreset) {
@@ -414,34 +443,42 @@ class WebRtcCallEngine(
     }
 
     private suspend fun setLocalDescription(description: SessionDescription) {
+        if (isDisposed) error("WebRTC engine disposed")
         val pc = peerConnection ?: error("PeerConnection unavailable")
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             pc.setLocalDescription(object : SimpleSdpObserver() {
                 override fun onSetSuccess() {
-                    cont.resume(Unit)
+                    if (cont.isActive) cont.resume(Unit)
                 }
 
                 override fun onSetFailure(error: String?) {
-                    cont.resumeWithException(IllegalStateException(error ?: "Failed to set local SDP"))
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException(error ?: "Failed to set local SDP"))
+                    }
                 }
             }, description)
         }
     }
 
     private suspend fun setRemoteDescription(description: SessionDescription) {
+        if (isDisposed) error("WebRTC engine disposed")
         val pc = peerConnection ?: error("PeerConnection unavailable")
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             pc.setRemoteDescription(object : SimpleSdpObserver() {
                 override fun onSetSuccess() {
                     isRemoteDescriptionSet = true
                     val buffered = pendingRemoteCandidates.toList()
                     pendingRemoteCandidates.clear()
-                    buffered.forEach { pc.addIceCandidate(it) }
-                    cont.resume(Unit)
+                    if (!isDisposed) {
+                        buffered.forEach { runCatching { pc.addIceCandidate(it) } }
+                    }
+                    if (cont.isActive) cont.resume(Unit)
                 }
 
                 override fun onSetFailure(error: String?) {
-                    cont.resumeWithException(IllegalStateException(error ?: "Failed to set remote SDP"))
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException(error ?: "Failed to set remote SDP"))
+                    }
                 }
             }, description)
         }

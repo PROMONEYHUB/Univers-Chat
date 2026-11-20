@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Base64
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +27,7 @@ data class RecordedVoiceFile(
     val durationSec: Int
 )
 
+@Immutable
 data class VoicePlaybackState(
     val activeMessageId: String? = null,
     val isPlaying: Boolean = false,
@@ -56,8 +58,8 @@ class VoiceNoteRecorder(context: Context) {
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioChannels(1)
-            setAudioSamplingRate(24_000)
-            setAudioEncodingBitRate(48_000)
+            setAudioSamplingRate(16_000)
+            setAudioEncodingBitRate(12_000)
             setMaxDuration(MAX_DURATION_MS)
             setMaxFileSize(MAX_FILE_SIZE_BYTES)
             setOutputFile(file.absolutePath)
@@ -80,7 +82,7 @@ class VoiceNoteRecorder(context: Context) {
     }
 
     /**
-     * Stops recording and returns the local AAC `.m4a` file ready for Firebase Storage upload.
+     * Stops recording and returns the local AAC `.m4a` file ready for Firestore inline Base64 encoding.
      */
     fun stopRecording(): Result<RecordedVoiceFile> = runCatching {
         val file = outputFile ?: error("No active voice recording.")
@@ -119,9 +121,28 @@ class VoiceNoteRecorder(context: Context) {
     }
 
     companion object {
-        const val MAX_DURATION_SEC = 180
+        const val MAX_DURATION_SEC = 40
         const val MAX_DURATION_MS = MAX_DURATION_SEC * 1000
-        private const val MAX_FILE_SIZE_BYTES = 5L * 1024L * 1024L // 5 MB cap for 3-minute voice note
+        private const val MAX_FILE_SIZE_BYTES = 68_000L
+        const val MAX_AUDIO_BASE64_LENGTH = 95_000
+
+        /**
+         * Encodes a recorded `.m4a` voice file into a Firestore-safe Base64 string.
+         */
+        fun encodeFileToBase64(file: File): Result<String> = runCatching {
+            require(file.exists() && file.length() >= 128L) {
+                "Recorded audio file is missing or empty."
+            }
+            val bytes = file.readBytes()
+            require(bytes.size <= 71_000) {
+                "Voice message is too long. Please keep recordings under $MAX_DURATION_SEC seconds."
+            }
+            val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            require(encoded.length in 16..MAX_AUDIO_BASE64_LENGTH) {
+                "Voice message exceeds Firestore size limit."
+            }
+            encoded
+        }
     }
 }
 

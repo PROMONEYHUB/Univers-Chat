@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -70,12 +78,11 @@ import com.example.data.model.Conversation
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.UniversChatsSkeletonLoading
+import com.example.ui.components.UniversMotion
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.bouncyPressScale
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.BadgeCoral
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.LocalUniversAccent
 import com.example.ui.viewmodel.ChatFilter
 import kotlinx.coroutines.delay
 
@@ -111,8 +118,7 @@ fun ChatsScreen(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val accent = LocalUniversAccent.current
-    val accentPrimary = accent.primary(isDark)
+    val accentPrimary = MaterialTheme.colorScheme.primary
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var openDialogInGroupMode by remember { mutableStateOf(false) }
@@ -149,12 +155,6 @@ fun ChatsScreen(
             .filter { it != currentUserId && it !in blockedUserIds }
             .toSet()
     }
-    val activeStoryPeople = remember(peopleList, connectedUserIds, currentUserId, blockedUserIds) {
-        peopleList
-            .filter { it.userId != currentUserId && it.userId !in blockedUserIds && it.userId in connectedUserIds }
-            .sortedWith(compareByDescending<UserProfile> { it.isOnline }.thenBy { it.displayName.lowercase() })
-            .take(12)
-    }
     val unreadConvCount = remember(allConversations, currentUserId) {
         allConversations.count { it.unreadCountFor(currentUserId) > 0L }
     }
@@ -185,7 +185,17 @@ fun ChatsScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .statusBarsPadding()
             ) {
-                if (isSearchExpanded) {
+                AnimatedContent(
+                    targetState = isSearchExpanded,
+                    transitionSpec = {
+                        (fadeIn(tween(180, easing = UniversMotion.FluidOutEasing)) +
+                            slideInVertically(tween(200, easing = UniversMotion.FluidOutEasing)) { if (targetState) -it / 4 else it / 4 }) togetherWith
+                            (fadeOut(tween(130, easing = UniversMotion.SoftInOutEasing)) +
+                                slideOutVertically(tween(160, easing = UniversMotion.SoftInOutEasing)) { if (targetState) it / 4 else -it / 4 })
+                    },
+                    label = "chats_header_search_transition"
+                ) { searchMode ->
+                if (searchMode) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -336,7 +346,7 @@ fun ChatsScreen(
                                     icon = Icons.Rounded.NotificationsNone,
                                     contentDescription = "Notifications center",
                                     showBadgeDot = unreadConvCount > 0 || hasMissedCallAlert,
-                                    badgeColor = BadgeCoral,
+                                    badgeColor = MaterialTheme.colorScheme.error,
                                     testTag = "header_notifications_button",
                                     onClick = {
                                         haptics.lightTap()
@@ -379,6 +389,7 @@ fun ChatsScreen(
                         }
                     }
                 }
+                }
 
                 TelegramFolderTabsBar(
                     selectedFilter = selectedFilter,
@@ -399,27 +410,19 @@ fun ChatsScreen(
                     openDialogInGroupMode = false
                     showNewChatDialog = true
                 },
-                shape = RoundedCornerShape(18.dp),
-                containerColor = Color.Transparent,
-                contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
+                shape = RoundedCornerShape(16.dp),
+                containerColor = MaterialTheme.colorScheme.onBackground,
+                contentColor = MaterialTheme.colorScheme.background,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
                 modifier = Modifier
-                    .bouncyPressScale(0.92f)
-                    .size(58.dp)
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = RoundedCornerShape(18.dp),
-                        ambientColor = accentPrimary,
-                        spotColor = accentPrimary
-                    )
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(accent.brandGradient(isDark))
+                    .bouncyPressScale(0.94f)
+                    .size(56.dp)
                     .testTag("new_chat_fab")
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Edit,
                     contentDescription = stringResource(R.string.new_chat),
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -476,26 +479,16 @@ fun ChatsScreen(
                         }
                     }
 
-                    val showActiveStrip = !isSearchExpanded &&
-                        searchQuery.isBlank() &&
-                        selectedFilter == ChatFilter.ALL &&
-                        activeStoryPeople.isNotEmpty()
+                    val chatsListState = rememberLazyListState()
 
                     LazyColumn(
+                        state = chatsListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 2.dp, bottom = 100.dp)
                     ) {
-                        if (showActiveStrip) {
-                            item(key = "active_stories_strip") {
-                                TelegramStoriesRow(
-                                    people = activeStoryPeople,
-                                    onPersonClick = onStartDirectChat
-                                )
-                            }
-                        }
 
                         if (filtered.isEmpty()) {
-                            item(key = "empty_chats_card") {
+                            item(key = "empty_chats_card", contentType = "empty_state") {
                                 EmptyChatsView(
                                     isFiltered = searchQuery.isNotBlank() || selectedFilter != ChatFilter.ALL,
                                     onStartDirect = {
@@ -509,17 +502,35 @@ fun ChatsScreen(
                                 )
                             }
                         } else {
-                            itemsIndexed(filtered, key = { _, conv -> conv.id }) { idx, conversation ->
+                            itemsIndexed(
+                                items = filtered,
+                                key = { _, conv -> conv.id },
+                                contentType = { _, _ -> "conversation_row" }
+                            ) { idx, conversation ->
                                 val otherId = conversation.otherParticipantId(currentUserId)
                                 val otherProfile = otherId?.let { peopleMap[it] }
                                 val isPendingDelete = conversation.id in pendingDeleteIds
-                                val typingSummary = conversation.formatTypingSummary(
-                                    currentUserId = currentUserId,
-                                    blockedUserIds = blockedUserIds,
-                                    peopleNames = peopleNameMap,
-                                    nowMillis = typingClockMs
-                                )
-                                Box(modifier = Modifier.animateItem()) {
+                                val typingSummary = remember(
+                                    conversation.typingBy,
+                                    currentUserId,
+                                    blockedUserIds,
+                                    peopleNameMap,
+                                    typingClockMs
+                                ) {
+                                    conversation.formatTypingSummary(
+                                        currentUserId = currentUserId,
+                                        blockedUserIds = blockedUserIds,
+                                        peopleNames = peopleNameMap,
+                                        nowMillis = typingClockMs
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                        fadeOutSpec = tween(140, easing = UniversMotion.SoftInOutEasing),
+                                        placementSpec = UniversMotion.ListPlacementSpring
+                                    )
+                                ) {
                                     SwipeToDeleteConversationItem(
                                         conversation = conversation,
                                         currentUserId = currentUserId,
@@ -606,21 +617,13 @@ private fun HeaderCircleIconButton(
     contentDescription: String,
     testTag: String,
     showBadgeDot: Boolean = false,
-    badgeColor: Color = BadgeCoral,
+    badgeColor: Color = MaterialTheme.colorScheme.error,
     onClick: () -> Unit
 ) {
-    val isDark = LocalIsTelegramDark.current
     Box(
         modifier = Modifier
-            .size(42.dp)
-            .bouncyPressScale(0.92f)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.72f else 0.78f))
-            .border(
-                width = 0.7.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.7f),
-                shape = CircleShape
-            )
             .clickable(onClick = onClick)
             .testTag(testTag),
         contentAlignment = Alignment.Center
@@ -628,18 +631,17 @@ private fun HeaderCircleIconButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(21.dp)
+            tint = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.size(23.dp)
         )
         if (showBadgeDot) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 8.dp)
-                    .size(9.dp)
+                    .padding(top = 11.dp, end = 11.dp)
+                    .size(8.dp)
                     .clip(CircleShape)
                     .background(badgeColor)
-                    .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape)
             )
         }
     }

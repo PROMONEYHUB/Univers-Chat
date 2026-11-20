@@ -78,6 +78,7 @@ import com.example.R
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.UserProfile
+import com.example.ui.components.UniversMotion
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.bouncyPressScale
 import com.example.ui.components.formatRelativeTime
@@ -96,9 +97,6 @@ fun TelegramFolderTabsBar(
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
-    val isDark = LocalIsTelegramDark.current
-    val accent = LocalUniversAccent.current
-    val accentPrimary = accent.primary(isDark)
 
     LazyRow(
         modifier = modifier.fillMaxWidth(),
@@ -108,55 +106,46 @@ fun TelegramFolderTabsBar(
         items(ChatFilter.entries, key = { it.name }) { filter ->
             val isSelected = filter == selectedFilter
             val label = if (filter == ChatFilter.DIRECT) "Direct" else filter.label
+            val chipBg by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(160),
+                label = "tab_bg_color"
+            )
             val textColor by animateColorAsState(
-                targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                animationSpec = tween(180),
+                targetValue = if (isSelected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = tween(160),
                 label = "tab_text_color"
             )
-            val pillBrush: Brush = if (isSelected) {
-                accent.brandGradient(isDark)
-            } else {
-                SolidColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.65f else 0.78f))
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
-                    .bouncyPressScale(0.95f)
-                    .defaultMinSize(minHeight = 36.dp)
+                    .bouncyPressScale(0.96f)
+                    .defaultMinSize(minHeight = 34.dp)
                     .clip(CircleShape)
-                    .background(pillBrush)
-                    .then(
-                        if (!isSelected) {
-                            Modifier.border(
-                                width = 0.6.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
-                                shape = CircleShape
-                            )
-                        } else Modifier
-                    )
+                    .background(chipBg)
                     .clickable {
                         haptics.selectionTick()
                         onSelectFilter(filter)
                     }
-                    .padding(horizontal = 15.dp, vertical = 7.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
                     .testTag("filter_chip_${filter.name.lowercase()}")
             ) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     color = textColor
                 )
                 if (filter == ChatFilter.UNREAD && unreadConvCount > 0) {
                     Surface(
                         shape = CircleShape,
-                        color = if (isSelected) Color.White.copy(alpha = 0.24f) else accentPrimary
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary
                     ) {
                         Text(
                             text = if (unreadConvCount > 99) "99+" else unreadConvCount.toString(),
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                         )
@@ -176,68 +165,43 @@ fun TelegramStoriesRow(
     if (people.isEmpty()) return
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val onlineCount = remember(people) { people.count { it.isOnline } }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(top = 6.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (onlineCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(TelegramGreen)
-                )
-            }
-            Text(
-                text = if (onlineCount > 0) "ACTIVE NOW · $onlineCount" else "QUICK CONTACTS",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(people, key = { it.userId }) { person ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .bouncyPressScale(0.92f)
-                        .width(66.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .bouncyPressScale(0.94f)
+                        .width(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable {
                             haptics.lightTap()
                             onPersonClick(person)
                         }
-                        .padding(vertical = 3.dp)
+                        .padding(vertical = 2.dp)
                 ) {
                     UserAvatar(
                         name = person.displayName,
                         photoUrl = person.photoUrl,
-                        size = 54.dp,
+                        size = 50.dp,
                         showPresence = true,
                         isOnline = person.isOnline,
-                        showStoryRing = person.isOnline
+                        showStoryRing = false
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = person.displayName.substringBefore(" "),
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = if (person.isOnline) FontWeight.SemiBold else FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -246,7 +210,7 @@ fun TelegramStoriesRow(
         }
         HorizontalDivider(
             thickness = 0.6.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.7f)
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.75f)
         )
     }
 }
@@ -270,8 +234,9 @@ fun TelegramConversationRow(
 
     val isGroup = conversation.type == Conversation.TYPE_GROUP
     val isSelfChat = !isGroup && conversation.participantIds.distinct().size <= 1
-    val title = if (!isGroup && !isSelfChat && !otherProfile?.displayName.isNullOrBlank()) {
-        otherProfile!!.displayName
+    val title = if (!isGroup && !isSelfChat) {
+        otherProfile?.displayName?.takeIf { it.isNotBlank() }
+            ?: conversation.displayTitleFor(currentUserId)
     } else {
         conversation.displayTitleFor(currentUserId)
     }
@@ -286,7 +251,8 @@ fun TelegramConversationRow(
     val isPinned = conversation.isPinnedBy(currentUserId)
     val isMuted = conversation.isMutedBy(currentUserId)
     val isOutgoing = conversation.lastMessageSenderId == currentUserId && conversation.lastMessageText.isNotBlank()
-    val timeText = formatRelativeTime(conversation.lastMessageAt ?: conversation.updatedAt ?: conversation.createdAt)
+    val timestamp = conversation.lastMessageAt ?: conversation.updatedAt ?: conversation.createdAt
+    val timeText = remember(timestamp) { formatRelativeTime(timestamp) }
     val isImagePreview = conversation.lastMessageType == Message.TYPE_IMAGE
     val isPollPreview = conversation.lastMessageType == Message.TYPE_POLL
     val isVoicePreview = conversation.lastMessageType == Message.TYPE_AUDIO
@@ -298,7 +264,7 @@ fun TelegramConversationRow(
     }
 
     val previewText = when {
-        conversation.lastMessageText.isBlank() -> if (isGroup) "Group created" else if (isSelfChat) "Cloud notes & saved media" else "Tap to send a message"
+        conversation.lastMessageText.isBlank() -> if (isGroup) "Group created" else if (isSelfChat) "Personal notes & media" else "Tap to send a message"
         else -> conversation.lastMessageText
     }
 
@@ -446,18 +412,21 @@ fun TelegramConversationRow(
                                     "${conversation.lastMessageSenderName.substringBefore(" ")}: "
                                 else -> ""
                             }
-                            val formattedPreview = buildAnnotatedString {
-                                if (senderPrefix.isNotEmpty()) {
-                                    withStyle(
-                                        SpanStyle(
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.82f),
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    ) {
-                                        append(senderPrefix)
+                            val senderPrefixColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.82f)
+                            val formattedPreview = remember(senderPrefix, previewText, senderPrefixColor) {
+                                buildAnnotatedString {
+                                    if (senderPrefix.isNotEmpty()) {
+                                        withStyle(
+                                            SpanStyle(
+                                                color = senderPrefixColor,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        ) {
+                                            append(senderPrefix)
+                                        }
                                     }
+                                    append(previewText)
                                 }
-                                append(previewText)
                             }
                             Text(
                                 text = formattedPreview,
@@ -481,13 +450,13 @@ fun TelegramConversationRow(
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .defaultMinSize(minWidth = 23.dp, minHeight = 23.dp)
+                                    .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
                                     .clip(CircleShape)
                                     .background(
                                         if (isMuted) {
-                                            SolidColor(MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
+                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
                                         } else {
-                                            accent.brandGradient(isDark)
+                                            MaterialTheme.colorScheme.primary
                                         }
                                     )
                                     .padding(horizontal = 7.dp, vertical = 2.dp)
@@ -495,7 +464,7 @@ fun TelegramConversationRow(
                                 Text(
                                     text = if (unreadCount > 99L) "99+" else unreadCount.toString(),
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = Color.White,
                                     textAlign = TextAlign.Center
                                 )
@@ -579,49 +548,53 @@ fun SwipeToDeleteConversationItem(
         enableDismissFromEndToStart = true,
         modifier = modifier.testTag("swipe_conversation_${conversation.id}"),
         backgroundContent = {
-            val isTriggered = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
-            val iconScale by animateFloatAsState(
-                targetValue = if (isTriggered) 1.15f else 0.92f,
-                label = "swipe_delete_icon_scale"
-            )
-            val bgAlpha by animateFloatAsState(
-                targetValue = if (isTriggered) 0.96f else 0.78f,
-                label = "swipe_delete_bg_alpha"
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                IosRed.copy(alpha = bgAlpha * 0.85f),
-                                IosRed.copy(alpha = bgAlpha)
-                            )
-                        )
+            if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                val isTriggered = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                val iconScaleState = animateFloatAsState(
+                    targetValue = if (isTriggered) 1.14f else 0.92f,
+                    animationSpec = UniversMotion.SnappyFloatSpring,
+                    label = "swipe_delete_icon_scale"
+                )
+                val bgAlphaState = animateFloatAsState(
+                    targetValue = if (isTriggered) 0.98f else 0.78f,
+                    animationSpec = tween(160, easing = UniversMotion.FluidOutEasing),
+                    label = "swipe_delete_bg_alpha"
+                )
+                val gradient = remember {
+                    Brush.horizontalGradient(
+                        colors = listOf(IosRed.copy(alpha = 0.85f), IosRed)
                     )
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = iconScale
-                        scaleY = iconScale
-                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = bgAlphaState.value }
+                        .background(gradient)
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.CenterEnd
                 ) {
-                    Text(
-                        text = if (isLeaveGroup) "Leave" else "Delete",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Icon(
-                        imageVector = if (isLeaveGroup) Icons.AutoMirrored.Rounded.ExitToApp else Icons.Rounded.DeleteOutline,
-                        contentDescription = if (isLeaveGroup) "Leave group" else "Delete chat",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.graphicsLayer {
+                            val s = iconScaleState.value
+                            scaleX = s
+                            scaleY = s
+                        }
+                    ) {
+                        Text(
+                            text = if (isLeaveGroup) "Leave" else "Delete",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Icon(
+                            imageVector = if (isLeaveGroup) Icons.AutoMirrored.Rounded.ExitToApp else Icons.Rounded.DeleteOutline,
+                            contentDescription = if (isLeaveGroup) "Leave group" else "Delete chat",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -646,82 +619,68 @@ fun EmptyChatsView(
     onCreateGroup: () -> Unit
 ) {
     val haptics = rememberIosHaptics()
-    val isDark = LocalIsTelegramDark.current
-    val accent = LocalUniversAccent.current
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 28.dp, vertical = 32.dp),
+            .padding(horizontal = 28.dp, vertical = 56.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.img_empty_chats),
-            contentDescription = stringResource(R.string.empty_chats_desc),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(176.dp)
-                .clip(RoundedCornerShape(24.dp)),
-            contentScale = ContentScale.Crop
-        )
-        Spacer(modifier = Modifier.height(22.dp))
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(64.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(18.dp))
         Text(
             text = if (isFiltered) "No matching chats" else stringResource(R.string.empty_chats_title),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = if (isFiltered) "Try a different search query or switch filters." else stringResource(R.string.empty_chats_subtitle),
+            text = if (isFiltered) "Try another search or filter." else stringResource(R.string.empty_chats_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         if (!isFiltered) {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(22.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {
                         haptics.lightTap()
                         onStartDirect()
                     },
-                    shape = CircleShape,
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = Color.White
+                        containerColor = MaterialTheme.colorScheme.onBackground,
+                        contentColor = MaterialTheme.colorScheme.background
                     ),
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier
-                        .bouncyPressScale(0.94f)
-                        .clip(CircleShape)
-                        .background(accent.brandGradient(isDark))
+                    modifier = Modifier.height(48.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("New Message", fontWeight = FontWeight.Bold)
-                    }
+                    Text("New Message", fontWeight = FontWeight.SemiBold)
                 }
                 OutlinedButton(
                     onClick = {
                         haptics.lightTap()
                         onCreateGroup()
                     },
-                    shape = CircleShape,
-                    modifier = Modifier.bouncyPressScale(0.94f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
-                    Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("New Group", fontWeight = FontWeight.SemiBold)
+                    Text("New Group", fontWeight = FontWeight.Medium)
                 }
             }
         }

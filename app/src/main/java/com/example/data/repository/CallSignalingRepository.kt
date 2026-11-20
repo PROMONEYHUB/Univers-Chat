@@ -212,6 +212,12 @@ class CallSignalingRepository(
             ).await()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED && isAlreadyTerminal(docRef)) {
+                return@runCatching
+            }
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
+            throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
             throw e
@@ -232,10 +238,24 @@ class CallSignalingRepository(
             ).await()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED && isAlreadyTerminal(docRef)) {
+                return@runCatching
+            }
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
+            throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
             throw e
         }
+    }
+
+    private suspend fun isAlreadyTerminal(docRef: com.google.firebase.firestore.DocumentReference): Boolean {
+        return runCatching {
+            val snap = docRef.get().await()
+            val currentStatus = snap.getString("status")
+            !snap.exists() || currentStatus in CallSession.TERMINAL_STATUSES
+        }.getOrDefault(false)
     }
 
     suspend fun updateQualityPreset(callId: String, qualityPreset: CallQualityPreset): Result<Unit> = runCatching {

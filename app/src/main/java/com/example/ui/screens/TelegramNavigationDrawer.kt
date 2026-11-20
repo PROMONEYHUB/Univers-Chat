@@ -17,20 +17,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.GroupAdd
-import androidx.compose.material.icons.rounded.LightMode
-import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.GroupAdd
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,32 +47,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.UserProfile
-import com.example.ui.components.TelegramWallpaperStyle
 import com.example.ui.components.UserAvatar
-import com.example.ui.components.rememberCosmicAuraHeaderBrush
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.BadgeAmber
-import com.example.ui.theme.BadgeCoral
-import com.example.ui.theme.BadgeCyan
-import com.example.ui.theme.BadgeEmerald
-import com.example.ui.theme.BadgeRose
-import com.example.ui.theme.BadgeSapphire
-import com.example.ui.theme.BadgeSlateBlue
 import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.theme.LocalUniversAccent
 
 @Composable
 fun TelegramDrawerContent(
     currentUserProfile: UserProfile?,
     userEmailOrPhone: String?,
-    wallpaperStyle: TelegramWallpaperStyle,
     onToggleNightMode: () -> Unit,
     onNewGroupClick: () -> Unit,
     onContactsClick: () -> Unit,
     onCallsClick: () -> Unit,
     onSavedMessagesClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onCycleWallpaperClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onNotificationsClick: (() -> Unit)? = null,
     unreadNotificationsCount: Long = 0L,
@@ -82,12 +68,10 @@ fun TelegramDrawerContent(
 ) {
     val haptics = rememberIosHaptics()
     val isDark = LocalIsTelegramDark.current
-    val accent = LocalUniversAccent.current
-    val headerBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
 
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
-        modifier = modifier.width(308.dp)
+        modifier = modifier.width(304.dp)
     ) {
         Column(
             modifier = Modifier
@@ -98,7 +82,7 @@ fun TelegramDrawerContent(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(headerBrush)
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     .statusBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 18.dp)
             ) {
@@ -119,44 +103,36 @@ fun TelegramDrawerContent(
                             UserAvatar(
                                 name = currentUserProfile?.displayName ?: "You",
                                 photoUrl = currentUserProfile?.photoUrl,
-                                size = 64.dp,
-                                showPresence = true,
-                                isOnline = currentUserProfile?.isOnline != false,
-                                showStoryRing = true
+                                size = 58.dp,
+                                showPresence = false
                             )
                         }
 
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.14f),
-                            modifier = Modifier.size(44.dp)
+                        IconButton(
+                            onClick = {
+                                haptics.selectionTick()
+                                onToggleNightMode()
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("drawer_night_mode_toggle")
                         ) {
-                            IconButton(
-                                onClick = {
-                                    haptics.selectionTick()
-                                    onToggleNightMode()
-                                },
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .testTag("drawer_night_mode_toggle")
-                            ) {
-                                Icon(
-                                    imageVector = if (isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                                    contentDescription = if (isDark) "Switch to Day theme" else "Switch to Night theme",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(21.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                                contentDescription = if (isDark) "Switch to Light mode" else "Switch to Dark mode",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = currentUserProfile?.displayName?.ifBlank { "Univers Member" } ?: "Univers Member",
+                        text = currentUserProfile?.displayName?.ifBlank { "Member" } ?: "Member",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -174,29 +150,22 @@ fun TelegramDrawerContent(
                     Text(
                         text = secondaryLine,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val bioPreview = currentUserProfile?.bio.orEmpty().trim()
-                    if (bioPreview.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = bioPreview,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(
+                thickness = 0.6.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
 
-            TelegramDrawerItem(
-                icon = Icons.Rounded.AccountCircle,
-                badgeColor = accent.primary(isDark),
+            Spacer(modifier = Modifier.height(6.dp))
+
+            DrawerRowItem(
+                icon = Icons.Outlined.AccountCircle,
                 label = "My Profile",
                 testTag = "drawer_my_profile",
                 onClick = {
@@ -205,14 +174,12 @@ fun TelegramDrawerContent(
                 }
             )
             if (onNotificationsClick != null) {
-                TelegramDrawerItem(
-                    icon = Icons.Rounded.NotificationsActive,
-                    badgeColor = BadgeCoral,
+                DrawerRowItem(
+                    icon = Icons.Outlined.Notifications,
                     label = "Notifications",
                     trailingBadge = if (unreadNotificationsCount > 0L) {
                         if (unreadNotificationsCount > 99L) "99+" else unreadNotificationsCount.toString()
                     } else null,
-                    trailingBadgeColor = BadgeCoral,
                     testTag = "drawer_notifications",
                     onClick = {
                         haptics.lightTap()
@@ -220,9 +187,8 @@ fun TelegramDrawerContent(
                     }
                 )
             }
-            TelegramDrawerItem(
-                icon = Icons.Rounded.GroupAdd,
-                badgeColor = BadgeEmerald,
+            DrawerRowItem(
+                icon = Icons.Outlined.GroupAdd,
                 label = "New Group",
                 testTag = "drawer_new_group",
                 onClick = {
@@ -230,9 +196,8 @@ fun TelegramDrawerContent(
                     onNewGroupClick()
                 }
             )
-            TelegramDrawerItem(
-                icon = Icons.Rounded.Person,
-                badgeColor = BadgeSapphire,
+            DrawerRowItem(
+                icon = Icons.Outlined.Person,
                 label = "Contacts",
                 testTag = "drawer_contacts",
                 onClick = {
@@ -240,9 +205,8 @@ fun TelegramDrawerContent(
                     onContactsClick()
                 }
             )
-            TelegramDrawerItem(
-                icon = Icons.Rounded.Call,
-                badgeColor = BadgeCyan,
+            DrawerRowItem(
+                icon = Icons.Outlined.Call,
                 label = "Calls",
                 testTag = "drawer_calls",
                 onClick = {
@@ -250,9 +214,8 @@ fun TelegramDrawerContent(
                     onCallsClick()
                 }
             )
-            TelegramDrawerItem(
-                icon = Icons.Rounded.Bookmark,
-                badgeColor = BadgeAmber,
+            DrawerRowItem(
+                icon = Icons.Outlined.BookmarkBorder,
                 label = "Saved Messages",
                 testTag = "drawer_saved_messages",
                 onClick = {
@@ -260,9 +223,8 @@ fun TelegramDrawerContent(
                     onSavedMessagesClick()
                 }
             )
-            TelegramDrawerItem(
-                icon = Icons.Rounded.Settings,
-                badgeColor = BadgeSlateBlue,
+            DrawerRowItem(
+                icon = Icons.Outlined.Settings,
                 label = "Settings",
                 testTag = "drawer_settings",
                 onClick = {
@@ -273,27 +235,15 @@ fun TelegramDrawerContent(
 
             HorizontalDivider(
                 thickness = 0.6.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
             )
 
-            TelegramDrawerItem(
-                icon = Icons.Rounded.Wallpaper,
-                badgeColor = accent.primary(isDark),
-                label = "Chat Wallpaper",
-                trailingBadge = wallpaperStyle.label.substringBefore(" "),
-                testTag = "drawer_wallpaper",
-                onClick = {
-                    haptics.selectionTick()
-                    onCycleWallpaperClick()
-                }
-            )
-
-            TelegramDrawerItem(
+            DrawerRowItem(
                 icon = Icons.AutoMirrored.Rounded.Logout,
-                badgeColor = BadgeRose,
-                label = "Log Out",
-                tint = MaterialTheme.colorScheme.error,
+                label = "Log out",
+                iconTint = MaterialTheme.colorScheme.error,
+                labelTint = MaterialTheme.colorScheme.error,
                 testTag = "drawer_sign_out",
                 onClick = {
                     haptics.impactMedium()
@@ -304,7 +254,7 @@ fun TelegramDrawerContent(
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "Univers Chat · End-to-End Encrypted",
+                text = "Univers Chat",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -314,13 +264,12 @@ fun TelegramDrawerContent(
 }
 
 @Composable
-private fun TelegramDrawerItem(
+private fun DrawerRowItem(
     icon: ImageVector,
-    badgeColor: Color,
     label: String,
     trailingBadge: String? = null,
-    trailingBadgeColor: Color? = null,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    labelTint: Color = MaterialTheme.colorScheme.onSurface,
     testTag: String,
     onClick: () -> Unit
 ) {
@@ -329,30 +278,22 @@ private fun TelegramDrawerItem(
             .fillMaxWidth()
             .defaultMinSize(minHeight = 52.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .padding(horizontal = 20.dp, vertical = 11.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(badgeColor)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(16.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(18.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = tint,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = labelTint,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -360,14 +301,14 @@ private fun TelegramDrawerItem(
         if (!trailingBadge.isNullOrBlank()) {
             Surface(
                 shape = CircleShape,
-                color = trailingBadgeColor ?: MaterialTheme.colorScheme.primaryContainer
+                color = MaterialTheme.colorScheme.primary
             ) {
                 Text(
                     text = trailingBadge,
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (trailingBadgeColor != null) Color.White else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                 )
             }
         }

@@ -53,7 +53,7 @@ object NotificationHelper {
 
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 
@@ -90,10 +90,10 @@ object NotificationHelper {
 
         val callsChannel = NotificationChannel(
             CHANNEL_CALLS,
-            "HD Voice & Video Calls",
+            "Voice & Video Calls",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Incoming HD voice and video call alerts"
+            description = "Incoming voice and video call alerts"
             enableVibration(true)
             enableLights(true)
             lightColor = Color.rgb(52, 199, 89)
@@ -134,7 +134,7 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(context, CHANNEL_SYNC_STATUS)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setSmallIcon(R.drawable.ic_stat_univers_chat)
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText("Connected for real-time messages")
             .setOngoing(true)
@@ -151,7 +151,8 @@ object NotificationHelper {
         conversationTitle: String,
         senderName: String,
         messageText: String,
-        timestampMillis: Long
+        timestampMillis: Long,
+        vibrateEnabled: Boolean = true
     ) {
         if (!hasNotificationPermission(context)) return
         ensureChannels(context)
@@ -221,13 +222,18 @@ object NotificationHelper {
             }
             .addMessage(messageText, timestampMillis, senderPerson)
 
+        val defaults = if (vibrateEnabled) {
+            NotificationCompat.DEFAULT_ALL
+        } else {
+            NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_LIGHTS
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setSmallIcon(R.drawable.ic_stat_univers_chat)
             .setColor(Color.rgb(0, 122, 255))
             .setStyle(messagingStyle)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setDefaults(defaults)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
@@ -265,11 +271,11 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = "$contactDisplayName joined Univers Chat!"
-        val body = "Your contact is now on Univers Chat. Tap to say hello with encrypted chat."
+        val title = "$contactDisplayName joined Univers Chat"
+        val body = "Your contact is now on Univers Chat."
 
         val notification = NotificationCompat.Builder(context, CHANNEL_CONTACTS)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setSmallIcon(R.drawable.ic_stat_univers_chat)
             .setColor(Color.rgb(99, 102, 241))
             .setContentTitle(title)
             .setContentText(body)
@@ -290,7 +296,9 @@ object NotificationHelper {
     }
 
     fun cancelConversationNotification(context: Context, conversationId: String) {
-        NotificationManagerCompat.from(context).cancel(notificationIdFor(conversationId))
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(notificationIdFor(conversationId))
+        }
     }
 
     fun notificationIdFor(conversationId: String): Int {

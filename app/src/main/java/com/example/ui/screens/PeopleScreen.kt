@@ -1,7 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,48 +15,44 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.Contacts
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.PersonSearch
-import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Contacts
+import androidx.compose.material.icons.outlined.PersonSearch
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.HorizontalDivider
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.IosSearchField
-import com.example.ui.components.SavedMessagesAvatar
+import com.example.ui.components.UniversMotion
 import com.example.ui.components.UniversPeopleSkeletonLoading
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
@@ -64,7 +60,6 @@ import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.TelegramGreen
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeopleScreen(
     currentUserId: String,
@@ -152,15 +147,13 @@ fun PeopleScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
-                        Text(
-                            text = if (contactCount > 0) {
-                                "$contactCount contact${if (contactCount == 1) "" else "s"}"
-                            } else {
-                                "Private contacts"
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (contactCount > 0) {
+                            Text(
+                                text = "$contactCount contact${if (contactCount == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(
@@ -178,9 +171,9 @@ fun PeopleScreen(
             IosSearchField(
                 query = searchQuery,
                 onQueryChange = onSearchQueryChange,
-                placeholder = "Find by @username or name…",
+                placeholder = "Search by @username or name",
                 inputTestTag = "people_search_input",
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
             )
 
             when (peopleState) {
@@ -248,22 +241,17 @@ fun PeopleScreen(
                         }
                     }
 
+                    val hasAnyContacts = matchedPhoneContacts.isNotEmpty() || connectedContacts.isNotEmpty()
+                    val listState = rememberLazyListState()
                     LazyColumn(
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
+                        state = listState,
+                        contentPadding = PaddingValues(top = 2.dp, bottom = 32.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        if (currentUserProfile != null && trimmedQuery.isEmpty()) {
-                            item(key = "saved_messages_row") {
-                                SavedMessagesContactRow(
-                                    profile = currentUserProfile,
-                                    onClick = { onMessagePerson(currentUserProfile) }
-                                )
-                            }
-                        }
-
-                        if (!hasContactsPermission && trimmedQuery.isEmpty()) {
-                            item(key = "sync_contacts_banner") {
-                                SyncContactsBannerCard(
+                        // Show subtle inline sync strip ONLY when contacts exist (avoids duplicating with empty state)
+                        if (!hasContactsPermission && trimmedQuery.isEmpty() && hasAnyContacts) {
+                            item(key = "sync_contacts_banner", contentType = "sync_banner") {
+                                SyncContactsInlineRow(
                                     isSyncing = isSyncingContacts,
                                     onSyncClick = onRequestContactsSync
                                 )
@@ -271,72 +259,100 @@ fun PeopleScreen(
                         }
 
                         if (trimmedQuery.isEmpty()) {
-                            if (matchedPhoneContacts.isEmpty() && connectedContacts.isEmpty()) {
-                                item(key = "empty_private_contacts") {
+                            if (!hasAnyContacts) {
+                                item(key = "empty_private_contacts", contentType = "empty_state") {
                                     PrivateContactsEmptyState(
                                         hasContactsPermission = hasContactsPermission,
+                                        isSyncing = isSyncingContacts,
                                         onRequestContactsSync = onRequestContactsSync
                                     )
                                 }
                             } else {
                                 if (matchedPhoneContacts.isNotEmpty()) {
-                                    item(key = "phone_contacts_header") {
-                                        ContactsSectionLabel("CONTACTS ON UNIVERS")
+                                    item(key = "phone_contacts_header", contentType = "section_header") {
+                                        ContactsSectionLabel("On Univers Chat")
                                     }
-                                    items(items = matchedPhoneContacts, key = { "phone_${it.userId}" }) { person ->
-                                        val savedName = person.phoneHash?.let { localContactNamesByHash[it] }
-                                        UniversContactCard(
+                                    itemsIndexed(
+                                        items = matchedPhoneContacts,
+                                        key = { _, item -> "phone_${item.userId}" },
+                                        contentType = { _, _ -> "contact_row" }
+                                    ) { idx, person ->
+                                        val savedName = person.phoneHash.takeIf { it.isNotBlank() }?.let { localContactNamesByHash[it] }
+                                        ContactListRow(
                                             profile = person,
                                             phonebookLabel = savedName,
+                                            showDivider = idx < matchedPhoneContacts.lastIndex,
                                             onRowClick = {
                                                 if (onViewProfile != null) onViewProfile(person)
                                                 else onMessagePerson(person)
                                             },
                                             onMessageClick = { onMessagePerson(person) },
                                             onVoiceCallClick = { onCallPerson(person, false) },
-                                            onVideoCallClick = { onCallPerson(person, true) }
+                                            onVideoCallClick = { onCallPerson(person, true) },
+                                            modifier = Modifier.animateItem(
+                                                fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                                placementSpec = UniversMotion.ListPlacementSpring
+                                            )
                                         )
                                     }
                                 }
                                 if (connectedContacts.isNotEmpty()) {
-                                    item(key = "your_contacts_header") {
-                                        ContactsSectionLabel("YOUR CONTACTS")
+                                    item(key = "your_contacts_header", contentType = "section_header") {
+                                        ContactsSectionLabel("Contacts")
                                     }
-                                    items(items = connectedContacts, key = { it.userId }) { person ->
-                                        UniversContactCard(
+                                    itemsIndexed(
+                                        items = connectedContacts,
+                                        key = { _, item -> item.userId },
+                                        contentType = { _, _ -> "contact_row" }
+                                    ) { idx, person ->
+                                        ContactListRow(
                                             profile = person,
+                                            showDivider = idx < connectedContacts.lastIndex,
                                             onRowClick = {
                                                 if (onViewProfile != null) onViewProfile(person)
                                                 else onMessagePerson(person)
                                             },
                                             onMessageClick = { onMessagePerson(person) },
                                             onVoiceCallClick = { onCallPerson(person, false) },
-                                            onVideoCallClick = { onCallPerson(person, true) }
+                                            onVideoCallClick = { onCallPerson(person, true) },
+                                            modifier = Modifier.animateItem(
+                                                fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                                placementSpec = UniversMotion.ListPlacementSpring
+                                            )
                                         )
                                     }
                                 }
                             }
                         } else if (normalizedQuery.length < 2) {
                             if (connectedMatches.isNotEmpty()) {
-                                item(key = "your_contacts_short_header") {
-                                    ContactsSectionLabel("YOUR CONTACTS")
+                                item(key = "your_contacts_short_header", contentType = "section_header") {
+                                    ContactsSectionLabel("Contacts")
                                 }
-                                items(items = connectedMatches, key = { it.userId }) { person ->
-                                    UniversContactCard(
+                                itemsIndexed(
+                                    items = connectedMatches,
+                                    key = { _, item -> item.userId },
+                                    contentType = { _, _ -> "contact_row" }
+                                ) { idx, person ->
+                                    ContactListRow(
                                         profile = person,
+                                        showDivider = idx < connectedMatches.lastIndex,
                                         onRowClick = {
                                             if (onViewProfile != null) onViewProfile(person)
                                             else onMessagePerson(person)
                                         },
                                         onMessageClick = { onMessagePerson(person) },
                                         onVoiceCallClick = { onCallPerson(person, false) },
-                                        onVideoCallClick = { onCallPerson(person, true) }
+                                        onVideoCallClick = { onCallPerson(person, true) },
+                                        modifier = Modifier.animateItem(
+                                            fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                            placementSpec = UniversMotion.ListPlacementSpring
+                                        )
                                     )
                                 }
                             }
-                            item(key = "search_min_chars_hint") {
+                            item(key = "search_min_chars_hint", contentType = "hint") {
                                 Text(
-                                    text = "Type at least 2 characters to find new people by @username or name.",
+                                    text = "Enter at least 2 characters to search by @username or name.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
@@ -347,73 +363,91 @@ fun PeopleScreen(
                             }
                         } else {
                             if (connectedMatches.isNotEmpty()) {
-                                item(key = "search_contacts_header") {
-                                    ContactsSectionLabel("YOUR CONTACTS")
+                                item(key = "search_contacts_header", contentType = "section_header") {
+                                    ContactsSectionLabel("Contacts")
                                 }
-                                items(items = connectedMatches, key = { "c_${it.userId}" }) { person ->
-                                    UniversContactCard(
+                                itemsIndexed(
+                                    items = connectedMatches,
+                                    key = { _, item -> "c_${item.userId}" },
+                                    contentType = { _, _ -> "contact_row" }
+                                ) { idx, person ->
+                                    ContactListRow(
                                         profile = person,
+                                        showDivider = idx < connectedMatches.lastIndex,
                                         onRowClick = {
                                             if (onViewProfile != null) onViewProfile(person)
                                             else onMessagePerson(person)
                                         },
                                         onMessageClick = { onMessagePerson(person) },
                                         onVoiceCallClick = { onCallPerson(person, false) },
-                                        onVideoCallClick = { onCallPerson(person, true) }
+                                        onVideoCallClick = { onCallPerson(person, true) },
+                                        modifier = Modifier.animateItem(
+                                            fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                            placementSpec = UniversMotion.ListPlacementSpring
+                                        )
                                     )
                                 }
                             }
 
                             if (directoryMatches.isNotEmpty()) {
-                                item(key = "search_directory_header") {
-                                    ContactsSectionLabel("FIND ON UNIVERS")
+                                item(key = "search_directory_header", contentType = "section_header") {
+                                    ContactsSectionLabel("Global search")
                                 }
-                                items(items = directoryMatches, key = { "d_${it.userId}" }) { person ->
-                                    UniversContactCard(
+                                itemsIndexed(
+                                    items = directoryMatches,
+                                    key = { _, item -> "d_${item.userId}" },
+                                    contentType = { _, _ -> "contact_row" }
+                                ) { idx, person ->
+                                    ContactListRow(
                                         profile = person,
+                                        showDivider = idx < directoryMatches.lastIndex,
                                         onRowClick = {
                                             if (onViewProfile != null) onViewProfile(person)
                                             else onMessagePerson(person)
                                         },
                                         onMessageClick = { onMessagePerson(person) },
                                         onVoiceCallClick = { onCallPerson(person, false) },
-                                        onVideoCallClick = { onCallPerson(person, true) }
+                                        onVideoCallClick = { onCallPerson(person, true) },
+                                        modifier = Modifier.animateItem(
+                                            fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                            placementSpec = UniversMotion.ListPlacementSpring
+                                        )
                                     )
                                 }
                             }
 
                             if (connectedMatches.isEmpty() && directoryMatches.isEmpty()) {
-                                item(key = "empty_search_people") {
+                                item(key = "empty_search_people", contentType = "empty_state") {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 28.dp, vertical = 44.dp),
+                                            .padding(horizontal = 28.dp, vertical = 48.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Surface(
                                             shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                            modifier = Modifier.size(62.dp)
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.size(56.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(
-                                                    imageVector = Icons.Rounded.PersonSearch,
+                                                    imageVector = Icons.Outlined.PersonSearch,
                                                     contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(28.dp)
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(26.dp)
                                                 )
                                             }
                                         }
                                         Spacer(modifier = Modifier.height(14.dp))
                                         Text(
-                                            text = "No accounts match \"$trimmedQuery\"",
+                                            text = "No results for \"$trimmedQuery\"",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.SemiBold,
                                             textAlign = TextAlign.Center
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "Check the spelling or ask your friend for their Univers Chat @username.",
+                                            text = "Check the spelling or search by exact @username.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = TextAlign.Center
@@ -433,70 +467,122 @@ fun PeopleScreen(
 private fun ContactsSectionLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp)
     )
 }
 
 @Composable
-private fun SyncContactsBannerCard(
+private fun SyncContactsInlineRow(
     isSyncing: Boolean,
     onSyncClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        shape = shape,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .border(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), shape)
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .clickable(enabled = !isSyncing, onClick = onSyncClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .testTag("sync_contacts_cta_button"),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.Contacts,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(21.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
+            Icon(
+                imageVector = Icons.Outlined.Contacts,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sync Phone Contacts",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    text = "Sync phone contacts",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Find saved contacts & get notified when they join Univers Chat.",
+                    text = "See who you know on Univers Chat",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            if (isSyncing) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp)
+                )
+            } else {
+                TextButton(onClick = onSyncClick) {
+                    Text(
+                        text = "Sync",
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+        }
+        HorizontalDivider(
+            thickness = 0.6.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    }
+}
+
+@Composable
+private fun PrivateContactsEmptyState(
+    hasContactsPermission: Boolean = false,
+    isSyncing: Boolean = false,
+    onRequestContactsSync: () -> Unit = {}
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp, vertical = 56.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(60.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Contacts,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = if (hasContactsPermission) "No contacts on Univers Chat yet" else "Find your contacts",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = if (hasContactsPermission) {
+                "Contacts are synced. Search by @username above to message anyone directly."
+            } else {
+                "Sync your phone contacts to see who is already here, or search by @username above."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        if (!hasContactsPermission) {
+            Spacer(modifier = Modifier.height(20.dp))
             Button(
-                onClick = onSyncClick,
+                onClick = onRequestContactsSync,
                 enabled = !isSyncing,
                 shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.onBackground,
+                    contentColor = MaterialTheme.colorScheme.background
                 ),
                 modifier = Modifier
                     .height(48.dp)
@@ -504,12 +590,12 @@ private fun SyncContactsBannerCard(
             ) {
                 if (isSyncing) {
                     CircularProgressIndicator(
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.background,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 } else {
-                    Text("Sync", fontWeight = FontWeight.Bold)
+                    Text("Sync contacts", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -517,138 +603,41 @@ private fun SyncContactsBannerCard(
 }
 
 @Composable
-private fun PrivateContactsEmptyState(
-    hasContactsPermission: Boolean = false,
-    onRequestContactsSync: () -> Unit = {}
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 28.dp, vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(64.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Your contacts are private",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = if (hasContactsPermission) {
-                "Contacts synced securely. We'll notify you as soon as any of your contacts join Univers Chat — or search by @username above."
-            } else {
-                "Other accounts are hidden by default. Sync your phone contacts or search by exact @username above to start chatting."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-        if (!hasContactsPermission) {
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = onRequestContactsSync,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
-                ),
-                modifier = Modifier.height(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Contacts,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Allow Contacts Access", fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SavedMessagesContactRow(
-    profile: UserProfile,
-    onClick: () -> Unit
-) {
-    val haptics = rememberIosHaptics()
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        shape = shape,
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(shape)
-            .border(0.7.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .clickable {
-                haptics.lightTap()
-                onClick()
-            }
-            .testTag("message_person_${profile.userId}")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SavedMessagesAvatar(size = 46.dp)
-            Spacer(modifier = Modifier.width(13.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Saved Messages",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Private cloud notes, photos & links",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun UniversContactCard(
+private fun ContactListRow(
     profile: UserProfile,
     phonebookLabel: String? = null,
+    showDivider: Boolean = true,
     onRowClick: () -> Unit,
     onMessageClick: () -> Unit,
     onVoiceCallClick: () -> Unit,
-    onVideoCallClick: () -> Unit
+    onVideoCallClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val haptics = rememberIosHaptics()
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        shape = shape,
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier
+    val isDark = LocalIsTelegramDark.current
+    val subtitleLine = remember(profile.isOnline, profile.lastSeenAt, profile.handle, phonebookLabel, profile.displayName) {
+        val statusText = when {
+            profile.isOnline -> "online"
+            profile.lastSeenAt != null -> "last seen ${formatRelativeTime(profile.lastSeenAt)}"
+            profile.handle.isNotBlank() -> "@${profile.handle}"
+            else -> "offline"
+        }
+        buildString {
+            append(statusText)
+            if (profile.handle.isNotBlank() && (profile.isOnline || profile.lastSeenAt != null)) {
+                append(" · @${profile.handle}")
+            }
+            if (!phonebookLabel.isNullOrBlank() &&
+                !phonebookLabel.equals(profile.displayName, ignoreCase = true)
+            ) {
+                append(" · $phonebookLabel")
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(shape)
-            .border(0.7.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .clickable {
                 haptics.lightTap()
                 onRowClick()
@@ -658,7 +647,7 @@ private fun UniversContactCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             UserAvatar(
@@ -670,65 +659,29 @@ private fun UniversContactCard(
                 showStoryRing = false
             )
 
-            Spacer(modifier = Modifier.width(13.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = profile.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val statusText = when {
-                    profile.isOnline -> "online"
-                    profile.lastSeenAt != null -> "last seen ${formatRelativeTime(profile.lastSeenAt)}"
-                    profile.handle.isNotBlank() -> "@${profile.handle}"
-                    else -> "last seen recently"
-                }
                 Text(
-                    text = buildString {
-                        append(statusText)
-                        if (profile.handle.isNotBlank() && (profile.isOnline || profile.lastSeenAt != null)) {
-                            append(" · @${profile.handle}")
-                        }
-                        if (!phonebookLabel.isNullOrBlank() &&
-                            !phonebookLabel.equals(profile.displayName, ignoreCase = true)
-                        ) {
-                            append(" · $phonebookLabel")
-                        }
-                    },
+                    text = subtitleLine,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (profile.isOnline) TelegramGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (profile.isOnline) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val statusMsg = profile.statusVibe.trim()
-                val secondaryText = when {
-                    statusMsg.isNotBlank() -> statusMsg
-                    profile.bio.isNotBlank() -> profile.bio
-                    else -> ""
-                }
-                if (secondaryText.isNotBlank()) {
-                    Text(
-                        text = secondaryText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (statusMsg.isNotBlank()) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        fontWeight = if (statusMsg.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 IconButton(
                     onClick = {
@@ -738,9 +691,9 @@ private fun UniversContactCard(
                     modifier = Modifier.testTag("voice_call_person_${profile.userId}")
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Call,
+                        imageVector = Icons.Outlined.Call,
                         contentDescription = "Voice call ${profile.displayName}",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -753,9 +706,9 @@ private fun UniversContactCard(
                     modifier = Modifier.testTag("video_call_person_${profile.userId}")
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Videocam,
+                        imageVector = Icons.Outlined.Videocam,
                         contentDescription = "Video call ${profile.displayName}",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(21.dp)
                     )
                 }
@@ -768,13 +721,21 @@ private fun UniversContactCard(
                     modifier = Modifier.testTag("message_person_${profile.userId}")
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = "Chat with ${profile.displayName}",
-                        tint = MaterialTheme.colorScheme.primary,
+                        imageVector = Icons.AutoMirrored.Outlined.Chat,
+                        contentDescription = "Message ${profile.displayName}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
+        }
+
+        if (showDivider) {
+            HorizontalDivider(
+                thickness = 0.55.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.72f),
+                modifier = Modifier.padding(start = 76.dp, end = 16.dp)
+            )
         }
     }
 }

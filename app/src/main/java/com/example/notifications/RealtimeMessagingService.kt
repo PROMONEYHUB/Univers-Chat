@@ -47,6 +47,10 @@ class RealtimeMessagingService : Service() {
         return START_STICKY
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopSelf()
+    }
+
     companion object {
         fun syncServiceState(context: Context, shouldRun: Boolean) {
             val appContext = context.applicationContext

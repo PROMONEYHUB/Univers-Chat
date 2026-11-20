@@ -65,9 +65,7 @@ import com.example.ui.components.IosSegmentedControl
 import com.example.ui.components.SegmentedTabItem
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.PulseBrushes
 
-private val GroupTopicPresets = listOf("Friends", "Study", "Weekend", "Gaming", "Work", "Travel")
 
 @Composable
 fun NewConversationDialog(
@@ -127,8 +125,8 @@ fun NewConversationDialog(
 
     val modeTabs = remember {
         listOf(
-            SegmentedTabItem(value = false, label = "Direct Chat", testTag = "mode_direct_chip"),
-            SegmentedTabItem(value = true, label = "Group Channel", testTag = "mode_group_chip")
+            SegmentedTabItem(value = false, label = "Direct", testTag = "mode_direct_chip"),
+            SegmentedTabItem(value = true, label = "Group", testTag = "mode_group_chip")
         )
     }
 
@@ -185,7 +183,7 @@ fun NewConversationDialog(
                         ) {
                             Text(
                                 text = "Cancel",
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -206,14 +204,14 @@ fun NewConversationDialog(
                                 shape = CircleShape,
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = Color.White
+                                    containerColor = MaterialTheme.colorScheme.onBackground,
+                                    contentColor = MaterialTheme.colorScheme.background
                                 ),
                                 modifier = Modifier
                                     .height(36.dp)
                                     .testTag("create_group_confirm_button")
                             ) {
-                                Text("Create", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text("Create", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                             }
                         } else {
                             Spacer(modifier = Modifier.width(68.dp))
@@ -250,15 +248,15 @@ fun NewConversationDialog(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Box(
                                             modifier = Modifier
-                                                .size(46.dp)
+                                                .size(44.dp)
                                                 .clip(CircleShape)
-                                                .background(PulseBrushes.BrandGradient),
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Rounded.Groups,
                                                 contentDescription = null,
-                                                tint = Color.White,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(22.dp)
                                             )
                                         }
@@ -267,7 +265,7 @@ fun NewConversationDialog(
                                             Box(modifier = Modifier.fillMaxWidth()) {
                                                 if (groupTitle.isEmpty()) {
                                                     Text(
-                                                        text = "Group Name (required)",
+                                                        text = "Group name",
                                                         style = MaterialTheme.typography.titleMedium,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -280,7 +278,7 @@ fun NewConversationDialog(
                                                         fontWeight = FontWeight.SemiBold,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     ),
-                                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .testTag("group_title_input")
@@ -295,7 +293,7 @@ fun NewConversationDialog(
                                             Box(modifier = Modifier.fillMaxWidth()) {
                                                 if (groupTopic.isEmpty()) {
                                                     Text(
-                                                        text = "Add channel topic (optional)",
+                                                        text = "Description (optional)",
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -307,34 +305,8 @@ fun NewConversationDialog(
                                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     ),
-                                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
                                                     modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(GroupTopicPresets) { preset ->
-                                            val chosen = groupTopic == preset
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                                modifier = Modifier
-                                                    .clip(CircleShape)
-                                                    .clickable {
-                                                        haptics.selectionTick()
-                                                        groupTopic = if (chosen) "" else preset
-                                                    }
-                                            ) {
-                                                Text(
-                                                    text = preset,
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium,
-                                                    color = if (chosen) Color.White else MaterialTheme.colorScheme.onSurface,
-                                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
                                                 )
                                             }
                                         }
@@ -368,14 +340,14 @@ fun NewConversationDialog(
                                                     Text(
                                                         text = member.displayName.substringBefore(" "),
                                                         style = MaterialTheme.typography.labelMedium,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = MaterialTheme.colorScheme.primary
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Icon(
                                                         imageVector = Icons.Rounded.Close,
                                                         contentDescription = "Remove ${member.displayName}",
-                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                 }
@@ -399,118 +371,94 @@ fun NewConversationDialog(
 
                     Text(
                         text = when {
-                            isGroupMode && selectedIds.isNotEmpty() -> "${selectedIds.size} SELECTED"
-                            normalizedSearch.length >= 2 -> "SEARCH RESULTS"
-                            else -> "YOUR CONTACTS"
+                            isGroupMode && selectedIds.isNotEmpty() -> "${selectedIds.size} selected"
+                            normalizedSearch.length >= 2 -> "Search results"
+                            else -> "Contacts"
                         },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                     )
 
                     if (filteredPeople.isEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 6.dp)
-                                .border(0.6.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
-                        ) {
-                            Text(
-                                text = when {
-                                    normalizedSearch.length >= 2 ->
-                                        "No account found matching \"$trimmedSearch\". Ask your friend for their exact @username."
-                                    isGroupMode ->
-                                        "No contacts yet. Type a friend's @username above to add them, or tap Create to set up your group."
-                                    else ->
-                                        "No contacts yet. Type a friend's @username or name above to find them and start chatting."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = when {
+                                normalizedSearch.length >= 2 ->
+                                    "No account found matching \"$trimmedSearch\"."
+                                isGroupMode ->
+                                    "No contacts yet. Search by @username above to add members."
+                                else ->
+                                    "No contacts yet. Search by @username or name above to start a chat."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 24.dp)
+                            contentPadding = PaddingValues(bottom = 24.dp)
                         ) {
-                            item(key = "people_picker_grouped") {
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .border(
-                                            width = 0.6.dp,
-                                            color = MaterialTheme.colorScheme.outlineVariant,
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        filteredPeople.forEachIndexed { index, person ->
-                                            val isSelected = person.userId in selectedIds
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        if (isGroupMode) {
-                                                            haptics.selectionTick()
-                                                            if (isSelected) selectedIds.remove(person.userId)
-                                                            else selectedIds.add(person.userId)
-                                                        } else {
-                                                            haptics.lightTap()
-                                                            onStartDirect(person)
-                                                        }
-                                                    }
-                                                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                UserAvatar(
-                                                    name = person.displayName,
-                                                    photoUrl = person.photoUrl,
-                                                    size = 44.dp,
-                                                    showPresence = true,
-                                                    isOnline = person.isOnline,
-                                                    showStoryRing = false
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = person.displayName,
-                                                        style = MaterialTheme.typography.titleSmall,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = "@${person.handle}${if (person.statusVibe.isNotBlank()) " · ${person.statusVibe}" else ""}",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
+                            items(filteredPeople, key = { it.userId }) { person ->
+                                val isSelected = person.userId in selectedIds
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
                                                 if (isGroupMode) {
-                                                    Icon(
-                                                        imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                                                        contentDescription = if (isSelected) "Selected" else "Not selected",
-                                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                                    )
+                                                    haptics.selectionTick()
+                                                    if (isSelected) selectedIds.remove(person.userId)
+                                                    else selectedIds.add(person.userId)
+                                                } else {
+                                                    haptics.lightTap()
+                                                    onStartDirect(person)
                                                 }
                                             }
-                                            if (index < filteredPeople.lastIndex) {
-                                                HorizontalDivider(
-                                                    thickness = 0.6.dp,
-                                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                                    modifier = Modifier.padding(start = 70.dp, end = 14.dp)
+                                            .padding(horizontal = 18.dp, vertical = 11.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        UserAvatar(
+                                            name = person.displayName,
+                                            photoUrl = person.photoUrl,
+                                            size = 44.dp,
+                                            showPresence = true,
+                                            isOnline = person.isOnline,
+                                            showStoryRing = false
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = person.displayName,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (person.handle.isNotBlank()) {
+                                                Text(
+                                                    text = "@${person.handle}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
+                                        if (isGroupMode) {
+                                            Icon(
+                                                imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                                contentDescription = if (isSelected) "Selected" else "Not selected",
+                                                tint = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline
+                                            )
+                                        }
                                     }
+                                    HorizontalDivider(
+                                        thickness = 0.55.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.padding(start = 74.dp, end = 18.dp)
+                                    )
                                 }
                             }
                         }

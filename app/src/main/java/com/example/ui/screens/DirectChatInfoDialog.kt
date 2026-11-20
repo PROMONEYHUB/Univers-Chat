@@ -192,21 +192,6 @@ fun DirectChatInfoDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-
-                        if (otherProfile.statusVibe.isNotBlank()) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer
-                            ) {
-                                Text(
-                                    text = otherProfile.statusVibe,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
                     }
 
                     if (otherProfile.bio.isNotBlank()) {
@@ -291,7 +276,7 @@ fun DirectChatInfoDialog(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("HD Voice", fontWeight = FontWeight.SemiBold)
+                                Text("Voice", fontWeight = FontWeight.SemiBold)
                             }
                         }
                         if (onStartVideoCall != null) {
@@ -313,7 +298,7 @@ fun DirectChatInfoDialog(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("HD Video", fontWeight = FontWeight.SemiBold)
+                                Text("Video", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }

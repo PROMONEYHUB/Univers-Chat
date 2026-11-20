@@ -263,11 +263,13 @@ object MessageNotificationCoordinator {
             val convTitle = conv.displayTitleFor(currentUserId)
             val senderName = conv.lastMessageSenderName.ifBlank { convTitle }
             val preview = formatNotificationPreview(conv)
-            val otherPhoto = if (conv.type == Conversation.TYPE_DIRECT) {
-                conv.participantPhotos[senderId]
-            } else {
-                conv.participantPhotos[senderId]
-            }
+            val otherPhoto = conv.participantPhotos[senderId]
+            val localPrefs = context.applicationContext.getSharedPreferences(
+                "univers_telegram_prefs",
+                Context.MODE_PRIVATE
+            )
+            val showPreviews = localPrefs.getBoolean("show_message_previews", true)
+            val vibrateEnabled = localPrefs.getBoolean("vibrate_enabled", true)
 
             if (appInForeground) {
                 _inAppBanners.tryEmit(
@@ -289,8 +291,9 @@ object MessageNotificationCoordinator {
                 conversation = conv,
                 conversationTitle = convTitle,
                 senderName = senderName,
-                messageText = preview,
-                timestampMillis = latestTs
+                messageText = if (showPreviews) preview else "New message",
+                timestampMillis = latestTs,
+                vibrateEnabled = vibrateEnabled
             )
         }
     }

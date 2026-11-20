@@ -290,12 +290,12 @@ class ChatRoomViewModel(
                         )
                     }
                 )
-                val downloadUrl = uploadResult.getOrElse { err ->
+                val audioPayload = uploadResult.getOrElse { err ->
                     if (err is CancellationException) throw err
                     _isSending.value = false
                     _voiceUploadState.value = VoiceUploadState.Error(
                         message = err.localizedMessage?.takeIf { it.isNotBlank() }
-                            ?: "Could not upload voice message",
+                            ?: "Could not prepare voice message",
                         file = recorded.file,
                         durationSec = recorded.durationSec
                     )
@@ -305,7 +305,7 @@ class ChatRoomViewModel(
                 repository.sendVoiceMessage(
                     conversation = conversation,
                     senderProfile = senderProfile,
-                    audioUrl = downloadUrl,
+                    audioPayload = audioPayload,
                     durationSec = recorded.durationSec,
                     replyTo = replying
                 ).onSuccess {

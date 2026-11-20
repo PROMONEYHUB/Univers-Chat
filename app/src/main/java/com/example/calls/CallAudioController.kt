@@ -26,37 +26,41 @@ class CallAudioController(context: Context) {
     private var activeRingtone: Ringtone? = null
 
     fun startCallAudio(speakerOnByDefault: Boolean) {
-        if (!isAudioActive) {
-            previousAudioMode = audioManager.mode
-            @Suppress("DEPRECATION")
-            previousSpeakerOn = audioManager.isSpeakerphoneOn
-            requestFocus()
-            isAudioActive = true
+        runCatching {
+            if (!isAudioActive) {
+                previousAudioMode = audioManager.mode
+                @Suppress("DEPRECATION")
+                previousSpeakerOn = audioManager.isSpeakerphoneOn
+                requestFocus()
+                isAudioActive = true
+            }
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            setSpeakerphone(speakerOnByDefault)
         }
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        setSpeakerphone(speakerOnByDefault)
     }
 
     fun setSpeakerphone(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val devices = audioManager.availableCommunicationDevices
-            val target = if (enabled) {
-                devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            } else {
-                devices.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-                } ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val devices = audioManager.availableCommunicationDevices
+                val target = if (enabled) {
+                    devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                } else {
+                    devices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                    } ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                }
+                if (target != null) {
+                    val switched = runCatching { audioManager.setCommunicationDevice(target) }.getOrDefault(false)
+                    if (switched) return
+                }
             }
-            if (target != null) {
-                val switched = audioManager.setCommunicationDevice(target)
-                if (switched) return
-            }
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = enabled
         }
-        @Suppress("DEPRECATION")
-        audioManager.isSpeakerphoneOn = enabled
     }
 
     fun stopCallAudio() {
@@ -66,8 +70,10 @@ class CallAudioController(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching { audioManager.clearCommunicationDevice() }
         } else {
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = previousSpeakerOn
+            runCatching {
+                @Suppress("DEPRECATION")
+                audioManager.isSpeakerphoneOn = previousSpeakerOn
+            }
         }
         runCatching { audioManager.mode = previousAudioMode }
         abandonFocus()
@@ -96,35 +102,39 @@ class CallAudioController(context: Context) {
     }
 
     private fun requestFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setOnAudioFocusChangeListener { }
+                    .build()
+                audioFocusRequest = request
+                audioManager.requestAudioFocus(request)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_VOICE_CALL,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
                 )
-                .setOnAudioFocusChangeListener { }
-                .build()
-            audioFocusRequest = request
-            audioManager.requestAudioFocus(request)
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
-                null,
-                AudioManager.STREAM_VOICE_CALL,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
-            )
+            }
         }
     }
 
     private fun abandonFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-            audioFocusRequest = null
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(null)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                audioFocusRequest = null
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
         }
     }
 

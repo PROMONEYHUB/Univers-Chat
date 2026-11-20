@@ -1,17 +1,22 @@
 package com.example.data.model
 
+import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 
+@Immutable
 sealed interface UiState<out T> {
     data object Loading : UiState<Nothing>
     data class Success<T>(val data: T) : UiState<T>
     data class Error(val message: String) : UiState<Nothing>
 }
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class PrivateUser(
     @DocumentId val id: String = "",
@@ -27,6 +32,8 @@ data class PrivateUser(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class UserProfile(
     @DocumentId val id: String = "",
@@ -35,7 +42,7 @@ data class UserProfile(
     val handle: String = "",
     val bio: String = "",
     val photoUrl: String = "",
-    val statusVibe: String = "Available",
+    val statusVibe: String = "",
     val phoneHash: String = "",
     val e2eeIdentityKey: String = "",
     @get:PropertyName("isOnline") @field:PropertyName("isOnline")
@@ -47,6 +54,8 @@ data class UserProfile(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class Conversation(
     @DocumentId val id: String = "",
@@ -152,6 +161,8 @@ data class Conversation(
     }
 }
 
+@Keep
+@Immutable
 @IgnoreExtraProperties
 data class Message(
     @DocumentId val id: String = "",
@@ -228,6 +239,7 @@ data class Message(
     }
 }
 
+@Immutable
 data class ReactionSummary(
     val emoji: String,
     val count: Int,

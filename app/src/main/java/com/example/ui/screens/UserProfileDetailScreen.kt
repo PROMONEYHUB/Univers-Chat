@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,7 +30,6 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Mood
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
@@ -76,11 +76,7 @@ import com.example.ui.components.ImageUtils
 import com.example.ui.components.UserAvatar
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.rememberIosHaptics
-import com.example.ui.theme.LocalIsTelegramDark
-import com.example.ui.components.rememberCosmicAuraHeaderBrush
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramDarkBar
-import com.example.ui.theme.TelegramSteelBlue
+import com.example.ui.theme.TelegramGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,9 +93,6 @@ fun UserProfileDetailScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val haptics = rememberIosHaptics()
-    val isDark = LocalIsTelegramDark.current
-    val cosmicHeaderBrush = rememberCosmicAuraHeaderBrush(isDark = isDark)
-    val sectionSpacerBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     var showFullPhoto by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -108,11 +101,10 @@ fun UserProfileDetailScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                modifier = Modifier.background(cosmicHeaderBrush),
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground
                 ),
                 navigationIcon = {
                     IconButton(
@@ -130,10 +122,9 @@ fun UserProfileDetailScreen(
                 },
                 title = {
                     Text(
-                        text = "Profile",
+                        text = "Contact Info",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             )
@@ -148,7 +139,7 @@ fun UserProfileDetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "This user profile is unavailable.",
+                    text = "This profile is unavailable.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -163,13 +154,14 @@ fun UserProfileDetailScreen(
                 .padding(innerPadding)
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Univers Cosmic Hero Banner
+            // Clean Neutral Contact Header
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(cosmicHeaderBrush)
-                    .padding(horizontal = 24.dp, vertical = 22.dp),
+                    .padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
@@ -184,20 +176,19 @@ fun UserProfileDetailScreen(
                     UserAvatar(
                         name = profile.displayName,
                         photoUrl = profile.photoUrl,
-                        size = 104.dp,
+                        size = 96.dp,
                         showPresence = !isBlocked,
-                        isOnline = profile.isOnline,
-                        showStoryRing = !isBlocked && profile.isOnline
+                        isOnline = profile.isOnline
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = profile.displayName.ifBlank { "Univers Member" },
+                    text = profile.displayName.ifBlank { "Member" },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onBackground,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -214,177 +205,124 @@ fun UserProfileDetailScreen(
                 Text(
                     text = presenceText,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (profile.isOnline && !isBlocked) Color(0xFFB3E5FC) else Color.White.copy(alpha = 0.80f),
-                    fontWeight = if (profile.isOnline && !isBlocked) FontWeight.SemiBold else FontWeight.Normal
+                    color = if (profile.isOnline && !isBlocked) TelegramGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (profile.isOnline && !isBlocked) FontWeight.Medium else FontWeight.Normal
                 )
+            }
 
-                if (profile.statusVibe.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = CircleShape,
-                        color = Color.White.copy(alpha = 0.16f)
-                    ) {
-                        Text(
-                            text = profile.statusVibe,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            // Primary Action Tiles
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ProfileQuickActionTile(
+                    icon = Icons.AutoMirrored.Rounded.Send,
+                    label = "Message",
+                    enabled = true,
+                    onClick = {
+                        haptics.lightTap()
+                        onStartChat(profile)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("user_profile_message_button")
+                )
+                ProfileQuickActionTile(
+                    icon = Icons.Rounded.Call,
+                    label = "Voice",
+                    enabled = !isBlocked,
+                    onClick = {
+                        haptics.lightTap()
+                        onVoiceCall(profile)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("user_profile_voice_call_button")
+                )
+                ProfileQuickActionTile(
+                    icon = Icons.Rounded.Videocam,
+                    label = "Video",
+                    enabled = !isBlocked,
+                    onClick = {
+                        haptics.lightTap()
+                        onVideoCall(profile)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("user_profile_video_call_button")
+                )
+            }
+
+            // Info Card
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(0.6.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    UserProfileInfoRow(
+                        icon = Icons.Outlined.Info,
+                        value = profile.bio.ifBlank { "No bio yet" },
+                        label = "Bio",
+                        isPlaceholder = profile.bio.isBlank()
+                    )
+
+                    if (profile.handle.isNotBlank()) {
+                        HorizontalDivider(
+                            thickness = 0.6.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.padding(start = 54.dp, end = 16.dp)
+                        )
+                        UserProfileInfoRow(
+                            icon = Icons.Outlined.AlternateEmail,
+                            value = "@${profile.handle}",
+                            label = "Username · Tap to copy",
+                            onClick = {
+                                haptics.lightTap()
+                                val text = "@${profile.handle}"
+                                clipboardManager.setText(AnnotatedString(text))
+                                Toast.makeText(context, "Copied $text", Toast.LENGTH_SHORT).show()
+                            }
                         )
                     }
                 }
             }
 
-            // Primary Action Strip (Message / Call / Video)
+            // Block Action
             Surface(
+                shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ProfileQuickActionTile(
-                        icon = Icons.AutoMirrored.Rounded.Send,
-                        label = "Message",
-                        enabled = true,
-                        onClick = {
-                            haptics.lightTap()
-                            onStartChat(profile)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("user_profile_message_button")
-                    )
-                    ProfileQuickActionTile(
-                        icon = Icons.Rounded.Call,
-                        label = "Voice Call",
-                        enabled = !isBlocked,
-                        onClick = {
-                            haptics.lightTap()
-                            onVoiceCall(profile)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("user_profile_voice_call_button")
-                    )
-                    ProfileQuickActionTile(
-                        icon = Icons.Rounded.Videocam,
-                        label = "Video Call",
-                        enabled = !isBlocked,
-                        onClick = {
-                            haptics.lightTap()
-                            onVideoCall(profile)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("user_profile_video_call_button")
-                    )
-                }
-            }
-
-            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(10.dp)
-                    .background(sectionSpacerBg)
-            )
-
-            // Info Section (Bio, Username, Status)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(bottom = 8.dp)
-            ) {
-                Text(
-                    text = "Info",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp)
-                )
-
-                UserProfileInfoRow(
-                    icon = Icons.Outlined.Info,
-                    value = profile.bio.ifBlank { "No bio yet" },
-                    label = "Bio",
-                    isPlaceholder = profile.bio.isBlank()
-                )
-
-                if (profile.handle.isNotBlank()) {
-                    HorizontalDivider(
-                        thickness = 0.6.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.padding(start = 58.dp)
-                    )
-                    UserProfileInfoRow(
-                        icon = Icons.Outlined.AlternateEmail,
-                        value = "@${profile.handle}",
-                        label = "Username · Tap to copy",
-                        onClick = {
-                            haptics.lightTap()
-                            val text = "@${profile.handle}"
-                            clipboardManager.setText(AnnotatedString(text))
-                            Toast.makeText(context, "Copied $text", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-
-                if (profile.statusVibe.isNotBlank()) {
-                    HorizontalDivider(
-                        thickness = 0.6.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.padding(start = 58.dp)
-                    )
-                    UserProfileInfoRow(
-                        icon = Icons.Outlined.Mood,
-                        value = profile.statusVibe,
-                        label = "Status vibe"
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .background(sectionSpacerBg)
-            )
-
-            // Privacy Action
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(vertical = 8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(0.6.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                    .clickable {
+                        haptics.impactMedium()
+                        onToggleBlock(profile)
+                    }
+                    .testTag("user_profile_block_button")
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = 52.dp)
-                        .clickable {
-                            haptics.impactMedium()
-                            onToggleBlock(profile)
-                        }
-                        .padding(horizontal = 18.dp, vertical = 12.dp)
-                        .testTag("user_profile_block_button"),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Block,
                         contentDescription = null,
-                        tint = if (isBlocked) TelegramBlue else MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(22.dp)
+                        tint = if (isBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(21.dp)
                     )
-                    Spacer(modifier = Modifier.width(18.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = if (isBlocked) "Unblock ${profile.displayName}" else "Block ${profile.displayName}",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
-                        color = if (isBlocked) TelegramBlue else MaterialTheme.colorScheme.error
+                        color = if (isBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                     )
                 }
             }
@@ -410,33 +348,30 @@ private fun ProfileQuickActionTile(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = if (enabled) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        },
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier
             .defaultMinSize(minHeight = 64.dp)
             .clip(RoundedCornerShape(14.dp))
+            .border(0.6.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
             .clickable(enabled = enabled, onClick = onClick)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(22.dp)
+                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.size(21.dp)
             )
-            Spacer(modifier = Modifier.height(5.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -457,7 +392,7 @@ private fun UserProfileInfoRow(
             .fillMaxWidth()
             .defaultMinSize(minHeight = 56.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top
     ) {
         Icon(
@@ -466,9 +401,9 @@ private fun UserProfileInfoRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(top = 2.dp)
-                .size(22.dp)
+                .size(21.dp)
         )
-        Spacer(modifier = Modifier.width(18.dp))
+        Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = value,
@@ -505,7 +440,7 @@ fun AvatarFullScreenDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.94f))
+                .background(Color.Black.copy(alpha = 0.96f))
                 .clickable(onClick = onDismiss)
         ) {
             Row(
@@ -545,8 +480,8 @@ fun AvatarFullScreenDialog(
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1A2430)),
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF16181D)),
                 contentAlignment = Alignment.Center
             ) {
                 when {
@@ -584,9 +519,9 @@ fun AvatarFullScreenDialog(
                                 onDismiss()
                                 onChangePhoto()
                             },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = TelegramBlue,
+                                containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = Color.White
                             ),
                             modifier = Modifier
@@ -604,8 +539,8 @@ fun AvatarFullScreenDialog(
                                 onDismiss()
                                 onRemovePhoto()
                             },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80)),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF6961)),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)

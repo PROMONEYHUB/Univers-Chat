@@ -1,20 +1,11 @@
 package com.example.ui.components
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,41 +16,39 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.ui.theme.AvatarToneClay
+import com.example.ui.theme.AvatarToneIndigo
+import com.example.ui.theme.AvatarToneSage
+import com.example.ui.theme.AvatarToneSlate
+import com.example.ui.theme.AvatarToneSteelBlue
+import com.example.ui.theme.AvatarToneTeal
 import com.example.ui.theme.OnlinePresenceGreen
-import com.example.ui.theme.PulseBrushes
-import com.example.ui.theme.TelegramBlue
-import com.example.ui.theme.TelegramBlueBright
-import com.example.ui.theme.TelegramGreen
-import com.example.ui.theme.TelegramIndigo
-import com.example.ui.theme.TelegramOrange
-import com.example.ui.theme.TelegramPink
-import com.example.ui.theme.TelegramRed
-import com.example.ui.theme.TelegramTeal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.absoluteValue
 
-private val TelegramAvatarGradients = listOf(
-    listOf(TelegramBlueBright, TelegramBlue),
-    listOf(TelegramOrange, TelegramPink),
-    listOf(TelegramGreen, TelegramTeal),
-    listOf(TelegramIndigo, TelegramBlue),
-    listOf(TelegramPink, TelegramRed),
-    listOf(TelegramTeal, TelegramBlueBright)
+private val FlatAvatarTones = listOf(
+    AvatarToneSteelBlue,
+    AvatarToneSlate,
+    AvatarToneSage,
+    AvatarToneIndigo,
+    AvatarToneClay,
+    AvatarToneTeal
 )
 
 @Composable
@@ -72,16 +61,17 @@ fun UserAvatar(
     isSavedMessages: Boolean = false,
     showPresence: Boolean = false,
     isOnline: Boolean = false,
-    showStoryRing: Boolean = false
+    @Suppress("UNUSED_PARAMETER") showStoryRing: Boolean = false
 ) {
-    val gradientBrush = remember(name, isSavedMessages) {
-        val gradient = if (isSavedMessages) {
-            listOf(TelegramBlueBright, TelegramBlue)
+    val context = LocalContext.current
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val fallbackTone = remember(name, isSavedMessages, primaryColor) {
+        if (isSavedMessages) {
+            primaryColor
         } else {
-            val paletteIndex = (name.hashCode().absoluteValue) % TelegramAvatarGradients.size
-            TelegramAvatarGradients[paletteIndex]
+            val paletteIndex = (name.hashCode().absoluteValue) % FlatAvatarTones.size
+            FlatAvatarTones[paletteIndex]
         }
-        Brush.verticalGradient(gradient)
     }
     val initials = remember(name) {
         name.trim()
@@ -92,41 +82,45 @@ fun UserAvatar(
             .ifEmpty { "U" }
     }
 
-    val decodedDataUriBitmap = remember(photoUrl) {
-        if (photoUrl != null && ImageUtils.isDataUri(photoUrl)) {
-            ImageUtils.decodeDataUriToImageBitmap(photoUrl)
+    val isDataUriPhoto = remember(photoUrl) { ImageUtils.isDataUri(photoUrl) }
+    val cachedBitmap = remember(photoUrl, isDataUriPhoto) {
+        if (isDataUriPhoto) ImageUtils.getCachedDataUriImageBitmap(photoUrl) else null
+    }
+    val decodedDataUriBitmap: ImageBitmap? by produceState(
+        initialValue = cachedBitmap,
+        key1 = photoUrl,
+        key2 = isDataUriPhoto
+    ) {
+        if (!isDataUriPhoto || photoUrl == null) {
+            value = null
+            return@produceState
+        }
+        if (value == null) {
+            value = withContext(Dispatchers.Default) {
+                ImageUtils.decodeDataUriToImageBitmap(photoUrl)
+            }
+        }
+    }
+
+    val remoteRequest = remember(photoUrl, isDataUriPhoto, context) {
+        if (!photoUrl.isNullOrBlank() && !isDataUriPhoto) {
+            ImageRequest.Builder(context)
+                .data(photoUrl)
+                .memoryCacheKey(photoUrl)
+                .diskCacheKey(photoUrl)
+                .crossfade(160)
+                .build()
         } else {
             null
         }
     }
 
-    val innerPadding = if (showStoryRing) 4.dp else 0.dp
-
     Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
-        if (showStoryRing) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidth = 2.dp.toPx()
-                drawCircle(
-                    brush = PulseBrushes.StoryRingActive,
-                    radius = (this.size.minDimension - strokeWidth) / 2f,
-                    style = Stroke(width = strokeWidth)
-                )
-            }
-        }
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .then(
-                    if (showStoryRing) {
-                        Modifier.border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                    } else {
-                        Modifier
-                    }
-                )
                 .clip(CircleShape)
-                .background(gradientBrush),
+                .background(fallbackTone),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -135,7 +129,7 @@ fun UserAvatar(
                         imageVector = Icons.Rounded.Bookmark,
                         contentDescription = "Saved Messages",
                         tint = Color.White,
-                        modifier = Modifier.size(size * 0.48f)
+                        modifier = Modifier.size(size * 0.46f)
                     )
                 }
                 isGroup -> {
@@ -143,20 +137,23 @@ fun UserAvatar(
                         imageVector = Icons.Rounded.Groups,
                         contentDescription = "$name group avatar",
                         tint = Color.White,
-                        modifier = Modifier.size(size * 0.50f)
+                        modifier = Modifier.size(size * 0.48f)
                     )
                 }
                 decodedDataUriBitmap != null -> {
-                    Image(
-                        bitmap = decodedDataUriBitmap,
-                        contentDescription = "$name profile photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    val resolvedBitmap = decodedDataUriBitmap
+                    if (resolvedBitmap != null) {
+                        Image(
+                            bitmap = resolvedBitmap,
+                            contentDescription = "$name profile photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
-                !photoUrl.isNullOrBlank() && !ImageUtils.isDataUri(photoUrl) -> {
+                remoteRequest != null -> {
                     AsyncImage(
-                        model = photoUrl,
+                        model = remoteRequest,
                         contentDescription = "$name profile photo",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -167,23 +164,23 @@ fun UserAvatar(
                         text = initials,
                         style = MaterialTheme.typography.titleMedium,
                         fontSize = (size.value * 0.34f).coerceIn(11f, 28f).sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
                 }
             }
         }
 
-        if (showPresence && !isSavedMessages) {
-            val dotSize = (size * 0.27f).coerceAtLeast(10.dp).coerceAtMost(16.dp)
+        if (showPresence && isOnline && !isSavedMessages) {
+            val dotSize = (size * 0.26f).coerceAtLeast(10.dp).coerceAtMost(15.dp)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .offset(x = 1.dp, y = 1.dp)
                     .size(dotSize)
                     .clip(CircleShape)
-                    .background(if (isOnline) OnlinePresenceGreen else MaterialTheme.colorScheme.outline)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                    .background(OnlinePresenceGreen)
+                    .border(2.dp, MaterialTheme.colorScheme.background, CircleShape)
             )
         }
     }

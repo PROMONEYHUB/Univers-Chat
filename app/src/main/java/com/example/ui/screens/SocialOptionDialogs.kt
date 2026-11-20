@@ -136,7 +136,7 @@ fun ConversationOptionsDialog(
 
                 OptionSheetRow(
                     icon = Icons.Rounded.PushPin,
-                    badgeColor = IosBlue,
+                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
                     label = if (isPinned) "Unpin conversation" else "Pin to top",
                     testTag = "conv_option_pin",
                     onClick = {
@@ -147,7 +147,7 @@ fun ConversationOptionsDialog(
                 )
                 OptionSheetRow(
                     icon = if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
-                    badgeColor = IosOrange,
+                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
                     label = if (isMuted) "Unmute notifications" else "Mute notifications",
                     testTag = "conv_option_mute",
                     onClick = {
@@ -158,7 +158,7 @@ fun ConversationOptionsDialog(
                 )
                 OptionSheetRow(
                     icon = if (hasUnread) Icons.Rounded.MarkChatRead else Icons.Rounded.MarkChatUnread,
-                    badgeColor = IosGreen,
+                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
                     label = if (hasUnread) "Mark as read" else "Mark as unread",
                     testTag = "conv_option_unread",
                     onClick = {
@@ -169,8 +169,8 @@ fun ConversationOptionsDialog(
                 )
                 OptionSheetRow(
                     icon = if (isLeaveGroup) Icons.AutoMirrored.Rounded.ExitToApp else Icons.Rounded.DeleteOutline,
-                    badgeColor = IosRed,
-                    label = if (isLeaveGroup) "Leave channel" else "Delete conversation",
+                    iconTint = MaterialTheme.colorScheme.error,
+                    label = if (isLeaveGroup) "Leave group" else "Delete conversation",
                     labelColor = MaterialTheme.colorScheme.error,
                     testTag = "conv_option_delete",
                     onClick = {
@@ -333,28 +333,11 @@ fun CallHistoryDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Recent Calls",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        text = "Recent Calls",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Rounded.Close, contentDescription = "Close call history")
                     }
@@ -373,16 +356,16 @@ fun CallHistoryDialog(
                             imageVector = Icons.Rounded.Call,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No recent calls yet",
+                            text = "No recent calls",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Start an HD Voice or HD Video call from any chat or contact.",
+                            text = "Start a voice or video call from any chat or contact.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -663,7 +646,7 @@ fun SharedPhotosStrip(
 @Composable
 private fun OptionSheetRow(
     icon: ImageVector,
-    badgeColor: Color,
+    iconTint: Color,
     label: String,
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
     testTag: String,
@@ -673,31 +656,23 @@ private fun OptionSheetRow(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp)
+            .padding(horizontal = 8.dp, vertical = 11.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(badgeColor.copy(alpha = 0.16f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = badgeColor,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(21.dp)
+        )
+        Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
             color = labelColor
         )
     }

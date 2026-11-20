@@ -8,11 +8,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -41,8 +44,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.outlined.AddIcCall
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.rounded.Block
-import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
@@ -51,7 +55,6 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VerifiedUser
-import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -65,8 +68,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -84,7 +85,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -106,9 +112,10 @@ import com.example.data.model.Message
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.ImageUtils
-import com.example.ui.components.TelegramChatWallpaper
 import com.example.ui.components.UniversChatRoomSkeletonLoading
+import com.example.ui.components.UniversMotion
 import com.example.ui.components.UserAvatar
+import com.example.ui.components.bouncyPressScale
 import com.example.ui.components.formatDayHeader
 import com.example.ui.components.formatRelativeTime
 import com.example.ui.components.isSameCalendarDay
@@ -471,8 +478,10 @@ fun ChatRoomScreen(
     val isOtherBlocked = !isGroup && !isSelfChat && otherId != null && otherId in blockedUserIds
     val canCallInThread = conversation != null && !isSelfChat && !isOtherBlocked &&
         conversation.participantIds.any { it != viewModel.currentUserId }
-    val title = if (!isGroup && !isSelfChat && !otherProfile?.displayName.isNullOrBlank()) {
-        otherProfile!!.displayName
+    val title = if (!isGroup && !isSelfChat) {
+        otherProfile?.displayName?.takeIf { it.isNotBlank() }
+            ?: conversation?.displayTitleFor(viewModel.currentUserId)
+            ?: "Chat"
     } else {
         conversation?.displayTitleFor(viewModel.currentUserId) ?: "Chat"
     }
@@ -524,17 +533,14 @@ fun ChatRoomScreen(
         conversation == null -> "connecting..."
         isOtherBlocked -> "blocked"
         typingHeaderSubtitle != null -> typingHeaderSubtitle
-        isSelfChat -> "encrypted personal notes"
+        isSelfChat -> "personal notes"
         isGroup -> {
             val base = "${conversation.participantIds.size} members"
             if (conversation.topic.isNotBlank()) "$base, ${conversation.topic}" else base
         }
         otherProfile != null -> {
-            val statusMessage = otherProfile.statusVibe.trim()
             when {
-                otherProfile.isOnline && statusMessage.isNotBlank() -> "online · $statusMessage"
-                otherProfile.isOnline -> "online"
-                statusMessage.isNotBlank() -> statusMessage
+                otherProfile.isOnline -> "Online"
                 otherProfile.lastSeenAt != null -> "last seen ${formatRelativeTime(otherProfile.lastSeenAt)}"
                 else -> "last seen recently"
             }
@@ -542,44 +548,167 @@ fun ChatRoomScreen(
         else -> "last seen recently"
     }
 
+    val triggerCall: (Boolean) -> Unit = { isVideo ->
+        val conv = conversation
+        if (conv != null) {
+            if (isGroup) {
+                pendingGroupCallVideo = isVideo
+            } else if (otherId != null) {
+                val peerName = otherProfile?.displayName
+                    ?: conv.participantNames[otherId]
+                    ?: title
+                val peerPhoto = otherProfile?.photoUrl
+                    ?: conv.participantPhotos[otherId]
+                onStartCall(
+                    CallTarget(
+                        userId = otherId,
+                        displayName = peerName,
+                        photoUrl = peerPhoto,
+                        conversationId = conv.id
+                    ),
+                    isVideo
+                )
+            }
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
+        containerColor = Color(0xFF04070E),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .drawWithCache {
+                    // Pure pitch obsidian canvas with a subtle top petrol-teal mist melting smoothly into #04070E
+                    val baseColor = Color(0xFF04070E)
+                    val topMist = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFF0B2536),
+                            0.20f to Color(0xFF071522),
+                            0.38f to Color(0xFF04070E),
+                            1.0f to Color(0xFF04070E)
+                        )
+                    )
+                    val rightSoftBloom = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF14485E).copy(alpha = 0.26f),
+                            Color(0xFF0A2233).copy(alpha = 0.12f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.85f, size.height * 0.10f),
+                        radius = (size.width * 0.85f).coerceAtLeast(1f)
+                    )
+                    onDrawBehind {
+                        drawRect(color = baseColor)
+                        drawRect(brush = topMist)
+                        drawRect(brush = rightSoftBloom)
+                    }
+                }
+        ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             ) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                        actionIconContentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    navigationIcon = {
+                // Reference-exact Curved Frosted Petrol-Teal Top Header
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawWithCache {
+                            val archDepth = 20.dp.toPx()
+                            val headerPath = Path().apply {
+                                moveTo(0f, 0f)
+                                lineTo(size.width, 0f)
+                                lineTo(size.width, size.height - archDepth)
+                                quadraticTo(
+                                    size.width * 0.5f,
+                                    size.height + archDepth * 0.72f,
+                                    0f,
+                                    size.height - archDepth
+                                )
+                                close()
+                            }
+                            val arcRimPath = Path().apply {
+                                moveTo(0f, size.height - archDepth)
+                                quadraticTo(
+                                    size.width * 0.5f,
+                                    size.height + archDepth * 0.72f,
+                                    size.width,
+                                    size.height - archDepth
+                                )
+                            }
+                            val baseGradient = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF0B1420),
+                                    Color(0xFF0E293A),
+                                    Color(0xFF144B5E)
+                                ),
+                                start = Offset(0f, size.height * 0.7f),
+                                end = Offset(size.width, 0f)
+                            )
+                            val topRightPetrolGlow = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF288FA6).copy(alpha = 0.72f),
+                                    Color(0xFF175B70).copy(alpha = 0.42f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width * 0.86f, size.height * 0.08f),
+                                radius = (size.width * 0.78f).coerceAtLeast(1f)
+                            )
+                            val bottomSoftShade = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.65f to Color(0xFF081421).copy(alpha = 0.25f),
+                                    1.0f to Color(0xFF0B1D2D).copy(alpha = 0.52f)
+                                )
+                            )
+                            val rimStroke = Stroke(width = 0.8.dp.toPx())
+                            val rimColor = Color.White.copy(alpha = 0.06f)
+                            onDrawBehind {
+                                drawPath(path = headerPath, brush = baseGradient)
+                                drawPath(path = headerPath, brush = topRightPetrolGlow)
+                                drawPath(path = headerPath, brush = bottomSoftShade)
+                                drawPath(path = arcRimPath, color = rimColor, style = rimStroke)
+                            }
+                        }
+                        .statusBarsPadding()
+                        .padding(
+                            start = if (showBackButton) 4.dp else 18.dp,
+                            end = 8.dp,
+                            top = 10.dp,
+                            bottom = 26.dp
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         if (showBackButton) {
                             IconButton(
                                 onClick = {
                                     haptics.lightTap()
                                     onBack()
                                 },
-                                modifier = Modifier.testTag("chat_back_button")
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("chat_back_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Back to chats"
+                                    contentDescription = "Back to chats",
+                                    tint = Color.White.copy(alpha = 0.90f)
                                 )
                             }
                         }
-                    },
-                    title = {
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
                                 .clickable(enabled = conversation != null) {
                                     haptics.lightTap()
                                     when {
@@ -588,109 +717,55 @@ fun ChatRoomScreen(
                                         else -> showDirectInfoDialog = true
                                     }
                                 }
-                                .padding(vertical = 4.dp, horizontal = 2.dp)
+                                .padding(vertical = 2.dp, horizontal = 2.dp)
                         ) {
                             UserAvatar(
                                 name = title,
                                 photoUrl = if (isGroup || isSelfChat) null else (otherProfile?.photoUrl ?: conversation?.participantPhotos?.get(otherId)),
-                                size = 40.dp,
+                                size = 48.dp,
                                 isGroup = isGroup,
                                 isSavedMessages = isSelfChat,
                                 showPresence = !isGroup && !isSelfChat && otherProfile != null,
                                 isOnline = isOtherOnline
                             )
-                            Spacer(modifier = Modifier.width(11.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                    if (isE2eeActive) {
-                                        Spacer(modifier = Modifier.width(5.dp))
-                                        Icon(
-                                            imageVector = Icons.Rounded.Lock,
-                                            contentDescription = "End-to-end encrypted chat",
-                                            tint = TelegramGreen,
-                                            modifier = Modifier
-                                                .size(13.dp)
-                                                .testTag("chat_header_e2ee_icon")
-                                        )
-                                    }
-                                }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = subtitle,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = when {
-                                        typingHeaderSubtitle != null -> accentPrimary
-                                        isOtherOnline -> TelegramGreen
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isOtherOnline && typingHeaderSubtitle == null) {
+                                        "Online"
+                                    } else {
+                                        subtitle
                                     },
-                                    fontWeight = if (typingHeaderSubtitle != null || isOtherOnline) FontWeight.SemiBold else FontWeight.Normal,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = when {
+                                        typingHeaderSubtitle != null -> Color(0xFF6BA6E8)
+                                        isOtherOnline -> Color(0xFF22C55E)
+                                        else -> Color.White.copy(alpha = 0.62f)
+                                    },
+                                    fontWeight = if (typingHeaderSubtitle != null || isOtherOnline) FontWeight.Medium else FontWeight.Normal,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                    },
-                    actions = {
+
                         if (canCallInThread) {
-                            val triggerCall: (Boolean) -> Unit = { isVideo ->
-                                val conv = conversation
-                                if (conv != null) {
-                                    if (isGroup) {
-                                        pendingGroupCallVideo = isVideo
-                                    } else if (otherId != null) {
-                                        val peerName = otherProfile?.displayName
-                                            ?: conv.participantNames[otherId]
-                                            ?: title
-                                        val peerPhoto = otherProfile?.photoUrl
-                                            ?: conv.participantPhotos[otherId]
-                                        onStartCall(
-                                            CallTarget(
-                                                userId = otherId,
-                                                displayName = peerName,
-                                                photoUrl = peerPhoto,
-                                                conversationId = conv.id
-                                            ),
-                                            isVideo
-                                        )
-                                    }
-                                }
-                            }
-                            Surface(
-                                shape = CircleShape,
-                                color = accentPrimary.copy(alpha = if (isDark) 0.16f else 0.10f),
+                            Spacer(modifier = Modifier.width(2.dp))
+                            // Translucent Circular Video Call Button (48dp touch target)
+                            Box(
+                                contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        haptics.lightTap()
-                                        triggerCall(false)
-                                    }
-                                    .testTag("voice_call_button")
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Call,
-                                        contentDescription = "Start HD voice call",
-                                        tint = accentPrimary,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-                            }
-                            Surface(
-                                shape = CircleShape,
-                                color = accentPrimary.copy(alpha = if (isDark) 0.16f else 0.10f),
-                                modifier = Modifier
-                                    .padding(end = 2.dp)
-                                    .size(38.dp)
+                                    .bouncyPressScale(0.90f)
+                                    .size(48.dp)
                                     .clip(CircleShape)
                                     .clickable {
                                         haptics.lightTap()
@@ -698,12 +773,49 @@ fun ChatRoomScreen(
                                     }
                                     .testTag("video_call_button")
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Videocam,
-                                        contentDescription = "Start HD video call",
-                                        tint = accentPrimary,
-                                        modifier = Modifier.size(20.dp)
+                                        imageVector = Icons.Outlined.Videocam,
+                                        contentDescription = "Video call",
+                                        tint = Color.White.copy(alpha = 0.94f),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            // Translucent Circular Voice Call Button (48dp touch target)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .bouncyPressScale(0.90f)
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        haptics.lightTap()
+                                        triggerCall(false)
+                                    }
+                                    .testTag("voice_call_button")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.12f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AddIcCall,
+                                        contentDescription = "Voice call",
+                                        tint = Color.White.copy(alpha = 0.94f),
+                                        modifier = Modifier.size(21.dp)
                                     )
                                 }
                             }
@@ -715,99 +827,82 @@ fun ChatRoomScreen(
                                     haptics.lightTap()
                                     showOverflowMenu = true
                                 },
-                                modifier = Modifier.testTag("chat_overflow_menu_button")
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("chat_overflow_menu_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.MoreVert,
                                     contentDescription = "More options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = Color.White.copy(alpha = 0.72f),
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             DropdownMenu(
                                 expanded = showOverflowMenu,
                                 onDismissRequest = { showOverflowMenu = false }
                             ) {
-                            DropdownMenuItem(
-                                text = { Text(if (showSearchBar) "Close Search" else "Search") },
-                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    if (showSearchBar) {
-                                        showSearchBar = false
-                                        inChatSearchQuery = ""
-                                    } else {
-                                        showSearchBar = true
-                                    }
-                                }
-                            )
-                            if (conversation != null) {
-                                val isMuted = conversation.isMutedBy(viewModel.currentUserId)
                                 DropdownMenuItem(
-                                    text = { Text(if (isMuted) "Unmute" else "Mute notifications") },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
-                                            contentDescription = null
-                                        )
-                                    },
+                                    text = { Text(if (showSearchBar) "Close Search" else "Search") },
+                                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
-                                        onToggleMuteConversation(conversation)
+                                        if (showSearchBar) {
+                                            showSearchBar = false
+                                            inChatSearchQuery = ""
+                                        } else {
+                                            showSearchBar = true
+                                        }
                                     }
                                 )
-                                if (!isGroup && !isSelfChat && otherId != null && onOpenUserProfile != null) {
+                                if (conversation != null) {
+                                    val isMuted = conversation.isMutedBy(viewModel.currentUserId)
                                     DropdownMenuItem(
-                                        text = { Text("View Profile") },
+                                        text = { Text(if (isMuted) "Unmute" else "Mute notifications") },
+                                        leadingIcon = {
+                                            Icon(
+                                                if (isMuted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onToggleMuteConversation(conversation)
+                                        }
+                                    )
+                                    if (!isGroup && !isSelfChat && otherId != null && onOpenUserProfile != null) {
+                                        DropdownMenuItem(
+                                            text = { Text("View Profile") },
+                                            leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                onOpenUserProfile(otherId)
+                                            }
+                                        )
+                                    }
+                                    if (isE2eeActive) {
+                                        DropdownMenuItem(
+                                            text = { Text("Encryption & Safety Number") },
+                                            leadingIcon = { Icon(Icons.Rounded.VerifiedUser, contentDescription = null) },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                showE2eeSafetyDialog = true
+                                            }
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(if (isGroup) "Group Info" else "Chat Info & Media") },
                                         leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
                                         onClick = {
                                             showOverflowMenu = false
-                                            onOpenUserProfile(otherId)
+                                            if (isGroup) showGroupInfoDialog = true else showDirectInfoDialog = true
                                         }
                                     )
-                                }
-                                if (isE2eeActive) {
-                                    DropdownMenuItem(
-                                        text = { Text("Encryption & Safety Number") },
-                                        leadingIcon = { Icon(Icons.Rounded.VerifiedUser, contentDescription = null) },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            showE2eeSafetyDialog = true
-                                        }
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text(if (isGroup) "Group Info" else "Chat Info & Media") },
-                                    leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        if (isGroup) showGroupInfoDialog = true else showDirectInfoDialog = true
-                                    }
-                                )
                                 }
                             }
                         }
                     }
-                )
-                HorizontalDivider(
-                    thickness = 0.6.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.55f else 0.72f)
-                )
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Keep wallpaper full-bleed so keyboard animations never resize or redraw it
-            TelegramChatWallpaper()
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-            ) {
+                }
                 AnimatedVisibility(visible = showSearchBar) {
                     ChatRoomSearchBar(
                         query = inChatSearchQuery,
@@ -908,44 +1003,52 @@ fun ChatRoomScreen(
                                         contentType = { row -> row.contentType }
                                     ) { row ->
                                         val msg = row.originalMessage
-                                        if (row.showDayHeader) {
-                                            DayDividerPill(label = row.dayHeaderLabel)
-                                        }
-
-                                        val bubblePlaybackState = if (voicePlaybackState.activeMessageId == msg.id) {
-                                            voicePlaybackState
-                                        } else {
-                                            IdleVoicePlaybackState
-                                        }
-
-                                        MessageBubble(
-                                            message = row.displayMessage,
-                                            isOwnMessage = row.isOwnMessage,
-                                            isGroup = isGroup,
-                                            currentUserId = viewModel.currentUserId,
-                                            isRead = row.isRead,
-                                            isFirstInCluster = row.isFirstInCluster,
-                                            isLastInCluster = row.isLastInCluster,
-                                            onLongPressOrTapActions = { selectedMessageForActions = msg },
-                                            onToggleReaction = { emoji -> viewModel.toggleReaction(msg, emoji) },
-                                            onInspectReactions = { reactionDetailsMessageId = msg.id },
-                                            onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
-                                            onOpenImage = { bmp ->
-                                                lightboxState = Triple(bmp, msg.senderName, msg.text)
-                                            },
-                                            voicePlaybackState = bubblePlaybackState,
-                                            onToggleVoicePlayback = { voiceMsg ->
-                                                val remoteUrl = resolveVoiceAudioUrl(voiceMsg)
-                                                val encoded = voiceMsg.audioBase64
-                                                if (!remoteUrl.isNullOrBlank() || !encoded.isNullOrBlank()) {
-                                                    voicePlayer.togglePlayback(
-                                                        messageId = voiceMsg.id,
-                                                        audioUrl = remoteUrl,
-                                                        audioBase64 = encoded
-                                                    )
-                                                }
+                                        Column(
+                                            modifier = Modifier.animateItem(
+                                                fadeInSpec = tween(180, easing = UniversMotion.FluidOutEasing),
+                                                fadeOutSpec = tween(120, easing = UniversMotion.SoftInOutEasing),
+                                                placementSpec = UniversMotion.ListPlacementSpring
+                                            )
+                                        ) {
+                                            if (row.showDayHeader) {
+                                                DayDividerPill(label = row.dayHeaderLabel)
                                             }
-                                        )
+
+                                            val bubblePlaybackState = if (voicePlaybackState.activeMessageId == msg.id) {
+                                                voicePlaybackState
+                                            } else {
+                                                IdleVoicePlaybackState
+                                            }
+
+                                            MessageBubble(
+                                                message = row.displayMessage,
+                                                isOwnMessage = row.isOwnMessage,
+                                                isGroup = isGroup,
+                                                currentUserId = viewModel.currentUserId,
+                                                isRead = row.isRead,
+                                                isFirstInCluster = row.isFirstInCluster,
+                                                isLastInCluster = row.isLastInCluster,
+                                                onLongPressOrTapActions = { selectedMessageForActions = msg },
+                                                onToggleReaction = { emoji -> viewModel.toggleReaction(msg, emoji) },
+                                                onInspectReactions = { reactionDetailsMessageId = msg.id },
+                                                onVotePoll = { optionIdx -> viewModel.votePoll(msg, optionIdx) },
+                                                onOpenImage = { bmp ->
+                                                    lightboxState = Triple(bmp, msg.senderName, msg.text)
+                                                },
+                                                voicePlaybackState = bubblePlaybackState,
+                                                onToggleVoicePlayback = { voiceMsg ->
+                                                    val remoteUrl = resolveVoiceAudioUrl(voiceMsg)
+                                                    val encoded = voiceMsg.audioBase64
+                                                    if (!remoteUrl.isNullOrBlank() || !encoded.isNullOrBlank()) {
+                                                        voicePlayer.togglePlayback(
+                                                            messageId = voiceMsg.id,
+                                                            audioUrl = remoteUrl,
+                                                            audioBase64 = encoded
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -954,8 +1057,8 @@ fun ChatRoomScreen(
 
                     androidx.compose.animation.AnimatedVisibility(
                         visible = floatingDateLabel != null,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
+                        enter = fadeIn(tween(150, easing = UniversMotion.FluidOutEasing)),
+                        exit = fadeOut(tween(180, easing = UniversMotion.SoftInOutEasing)),
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .padding(top = 6.dp)
@@ -987,8 +1090,10 @@ fun ChatRoomScreen(
 
                 AnimatedVisibility(
                     visible = activeTypingNames.isNotEmpty() && !isOtherBlocked,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+                    enter = fadeIn(tween(160, easing = UniversMotion.FluidOutEasing)) +
+                        expandVertically(tween(200, easing = UniversMotion.FluidOutEasing)),
+                    exit = fadeOut(tween(130)) +
+                        shrinkVertically(tween(170, easing = UniversMotion.FluidOutEasing))
                 ) {
                     TypingIndicatorBubble(
                         typerNames = activeTypingNames,
@@ -998,62 +1103,79 @@ fun ChatRoomScreen(
                 }
 
                 val bannerTarget = editingMessage ?: replyingTo
-                AnimatedVisibility(visible = bannerTarget != null) {
+                AnimatedVisibility(
+                    visible = bannerTarget != null,
+                    enter = fadeIn(tween(160, easing = UniversMotion.FluidOutEasing)) +
+                        expandVertically(tween(200, easing = UniversMotion.FluidOutEasing)),
+                    exit = fadeOut(tween(120)) +
+                        shrinkVertically(tween(160, easing = UniversMotion.FluidOutEasing))
+                ) {
+                    val replyShape = RoundedCornerShape(20.dp)
                     Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.fillMaxWidth()
+                        shape = replyShape,
+                        color = Color(0xFF151923),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .border(
+                                width = 0.7.dp,
+                                color = Color.White.copy(alpha = 0.06f),
+                                shape = replyShape
+                            )
                     ) {
-                        Column {
-                            HorizontalDivider(thickness = 0.6.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                            Row(
+                        Row(
+                            modifier = Modifier
+                                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
+                                .height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
                                 modifier = Modifier
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .height(IntrinsicSize.Min),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .fillMaxHeight()
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
+                                    .width(3.dp)
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF4B8BF5))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (editingMessage != null) {
+                                        "Edit message"
+                                    } else {
+                                        "Reply to ${replyingTo?.senderName ?: ""}"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF5D7BE8)
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (editingMessage != null) {
-                                            "Edit message"
-                                        } else {
-                                            "Reply to ${replyingTo?.senderName ?: ""}"
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = bannerTarget?.text?.ifBlank { "Photo / Voice / Poll" }.orEmpty(),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                Text(
+                                    text = bannerTarget?.text?.ifBlank { "Photo / Voice / Poll" }.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF9EA7B8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    haptics.lightTap()
+                                    if (editingMessage != null) draftText = ""
+                                    viewModel.setEditingTarget(null)
+                                    viewModel.setReplyTarget(null)
                                 }
-                                IconButton(
-                                    onClick = {
-                                        haptics.lightTap()
-                                        if (editingMessage != null) draftText = ""
-                                        viewModel.setEditingTarget(null)
-                                        viewModel.setReplyTarget(null)
-                                    }
-                                ) {
-                                    Icon(Icons.Rounded.Close, contentDescription = "Cancel reply or edit")
-                                }
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "Cancel reply or edit",
+                                    tint = Color(0xFF8C95A6)
+                                )
                             }
                         }
                     }
                 }
 
-                if (isOtherBlocked && otherId != null) {
+                val blockedOtherId = otherId
+                if (isOtherBlocked && blockedOtherId != null) {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         modifier = Modifier.fillMaxWidth()
@@ -1086,7 +1208,7 @@ fun ChatRoomScreen(
                                     )
                                 }
                                 TextButton(
-                                    onClick = { onToggleBlockUser(otherId, false) },
+                                    onClick = { onToggleBlockUser(blockedOtherId, false) },
                                     modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                                 ) {
                                     Text("UNBLOCK", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -1159,14 +1281,16 @@ fun ChatRoomScreen(
                             val trimmed = draftText.trim()
                             if (trimmed.isEmpty()) return@IosMessageComposerBar
                             haptics.success()
-                            val encryptedPayload = if (isE2eeActive && peerE2eeKey != null) {
-                                SignalProtocolEngine.encryptMessage(
-                                    context = context,
-                                    conversationId = conv.id,
-                                    senderId = viewModel.currentUserId,
-                                    peerPublicKeyB64 = peerE2eeKey,
-                                    plaintext = trimmed
-                                )
+                            val encryptedPayload = if (isE2eeActive) {
+                                peerE2eeKey?.let { peerKey ->
+                                    SignalProtocolEngine.encryptMessage(
+                                        context = context,
+                                        conversationId = conv.id,
+                                        senderId = viewModel.currentUserId,
+                                        peerPublicKeyB64 = peerKey,
+                                        plaintext = trimmed
+                                    )
+                                }
                             } else {
                                 null
                             }
@@ -1414,12 +1538,13 @@ fun ChatRoomScreen(
         }
     }
 
-    if (showE2eeSafetyDialog && isE2eeActive && peerE2eeKey != null) {
+    val activePeerKey = peerE2eeKey
+    if (showE2eeSafetyDialog && isE2eeActive && activePeerKey != null) {
         val localPubKey = remember(viewModel.currentUserId) {
             E2eeKeyManager.getPublicIdentityKeyBase64(context, viewModel.currentUserId)
         }
-        val safetyNumber = remember(localPubKey, peerE2eeKey) {
-            E2eeKeyManager.computeSafetyNumber(localPubKey, peerE2eeKey)
+        val safetyNumber = remember(localPubKey, activePeerKey) {
+            E2eeKeyManager.computeSafetyNumber(localPubKey, activePeerKey)
         }
         AlertDialog(
             onDismissRequest = { showE2eeSafetyDialog = false },
