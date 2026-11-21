@@ -1281,6 +1281,8 @@ fun ChatRoomScreen(
                             val trimmed = draftText.trim()
                             if (trimmed.isEmpty()) return@IosMessageComposerBar
                             haptics.success()
+                            draftText = ""
+                            isTrayOpen = false
                             val encryptedPayload = if (isE2eeActive) {
                                 peerE2eeKey?.let { peerKey ->
                                     SignalProtocolEngine.encryptMessage(
@@ -1299,10 +1301,7 @@ fun ChatRoomScreen(
                                 senderProfile = profile,
                                 text = trimmed,
                                 encryptedPayload = encryptedPayload
-                            ) {
-                                draftText = ""
-                                isTrayOpen = false
-                            }
+                            ) {}
                         },
                         isRecordingAudio = isRecordingAudio,
                         recordingSeconds = recordingSeconds,

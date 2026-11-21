@@ -17,8 +17,8 @@ import kotlin.math.roundToInt
 
 object ImageUtils {
     const val AVATAR_DATA_URI_PREFIX = "data:image/jpeg;base64,"
-    private const val MAX_DIMENSION_PX = 480
-    private const val MAX_RAW_BYTES = 54_000
+    private const val MAX_DIMENSION_PX = 1600
+    private const val MAX_RAW_BYTES = 900_000
     private const val AVATAR_MAX_DIMENSION_PX = 256
     private const val AVATAR_MAX_RAW_BYTES = 32_000
 

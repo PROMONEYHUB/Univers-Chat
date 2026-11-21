@@ -121,6 +121,11 @@ import com.example.ui.components.rememberIosHaptics
 import com.example.ui.theme.LocalIosSurfaces
 import com.example.ui.theme.LocalIsTelegramDark
 import com.example.ui.theme.LocalUniversAccent
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.example.data.repository.MessagingRepository
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -284,6 +289,31 @@ fun AuthScreen(
         }
     }
 
+    val bypassDemoLogin: () -> Unit = {
+        haptics.success()
+        isPhoneLoading = true
+        errorMessage = null
+        coroutineScope.launch {
+            runCatching {
+                val authResult = Firebase.auth.signInAnonymously().await()
+                val firebaseUser = authResult.user
+                if (firebaseUser != null) {
+                    val db = FirebaseFirestore.getInstance(context.getString(R.string.firestore_database_id))
+                    val repo = MessagingRepository(db, Firebase.auth)
+                    AuthProfilePrefill.pendingDisplayName = displayName.ifBlank { "Univers Demo User" }
+                    AuthProfilePrefill.pendingPhoneNumber = submittedPhoneE164.ifBlank { "+15550199" }
+                    repo.syncCurrentUserProfile(firebaseUser).getOrThrow()
+                }
+            }.onSuccess {
+                isPhoneLoading = false
+                onAuthSuccess()
+            }.onFailure { err ->
+                isPhoneLoading = false
+                errorMessage = "Demo login failed: ${err.localizedMessage}"
+            }
+        }
+    }
+
     val canvasSurfaceColor = if (isDark) Color(0xFF090B0E) else Color.White
     val formattedCandidate = formatE164PhoneNumber(selectedCountry.dialCode, phoneInput)
     val canSendCode = !isPhoneLoading && isValidE164PhoneNumber(formattedCandidate)
@@ -405,7 +435,8 @@ fun AuthScreen(
                             }
                         },
                         onResendOtp = { requestOtp(isResend = true) },
-                        onVerifyOtp = { submitOtp() }
+                        onVerifyOtp = { submitOtp() },
+                        onDemoLogin = bypassDemoLogin
                     )
                 }
             }
@@ -790,7 +821,8 @@ private fun UniversFlowVerifyOtpStage(
     onBack: () -> Unit,
     onOpenTelegramBot: () -> Unit,
     onResendOtp: () -> Unit,
-    onVerifyOtp: () -> Unit
+    onVerifyOtp: () -> Unit,
+    onDemoLogin: () -> Unit
 ) {
     val isDark = LocalIsTelegramDark.current
     val accent = LocalUniversAccent.current
@@ -900,6 +932,24 @@ private fun UniversFlowVerifyOtpStage(
                 enabled = !isPhoneLoading,
                 onCodeChange = onOtpCodeChange
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            OutlinedButton(
+                onClick = onDemoLogin,
+                enabled = !isPhoneLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("demo_login_button"),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    text = "⚡ Instant Demo Login (Skip OTP)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

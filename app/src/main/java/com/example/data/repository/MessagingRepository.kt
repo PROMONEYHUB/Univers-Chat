@@ -235,6 +235,7 @@ class MessagingRepository(
             handleFirestoreError(e, OperationType.WRITE, profileRef.path, auth)
             throw e
         }
+        sendAuthBotWelcomeMessageIfNeeded(uid).getOrNull()
     }
 
     suspend fun syncContactHashes(hashes: List<String>): Result<Unit> = runCatching {
@@ -1334,7 +1335,91 @@ class MessagingRepository(
     private fun compactSnapshotPhoto(photoUrl: String): String =
         photoUrl.takeIf { it.length <= 500 }.orEmpty()
 
+    suspend fun ensureSystemAuthBotProfile(): Result<Unit> = runCatching {
+        val botRef = db.collection(USER_PROFILES_COLLECTION).document(SYSTEM_AUTH_BOT_ID)
+        val snap = botRef.get().await()
+        if (!snap.exists()) {
+            val botPayload = mapOf(
+                "userId" to SYSTEM_AUTH_BOT_ID,
+                "displayName" to "Univers Verification Bot",
+                "handle" to "univers_auth_bot",
+                "bio" to "Official Telegram & App login verification bot",
+                "isOnline" to true,
+                "isDiscoverable" to true,
+                "photoUrl" to "https://api.dicebear.com/7.x/bottts/svg?seed=UniversAuthBot",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            botRef.set(botPayload).await()
+        }
+    }
+
+    suspend fun sendAuthBotWelcomeMessageIfNeeded(currentUserId: String): Result<Unit> = runCatching {
+        ensureSystemAuthBotProfile().getOrThrow()
+        val directId = buildDirectConversationId(currentUserId, SYSTEM_AUTH_BOT_ID)
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(directId)
+        val convSnap = convRef.get().await()
+        val botProfile = UserProfile(
+            userId = SYSTEM_AUTH_BOT_ID,
+            displayName = "Univers Verification Bot",
+            handle = "univers_auth_bot",
+            bio = "Official login verification bot",
+            isOnline = true,
+            isDiscoverable = true,
+            photoUrl = "https://api.dicebear.com/7.x/bottts/svg?seed=UniversAuthBot"
+        )
+        val myProfileSnap = db.collection(USER_PROFILES_COLLECTION).document(currentUserId).get().await()
+        val myProfile = myProfileSnap.toObject(UserProfile::class.java) ?: return@runCatching
+
+        if (!convSnap.exists()) {
+            getOrCreateDirectConversation(myProfile, botProfile).getOrThrow()
+        }
+        val conversation = db.collection(CONVERSATIONS_COLLECTION).document(directId).get().await().toObject(Conversation::class.java)
+        if (conversation != null) {
+            val messagesSnap = db.collection(CONVERSATIONS_COLLECTION).document(directId).collection(MESSAGES_SUBCOLLECTION).limit(1).get().await()
+            if (messagesSnap.isEmpty) {
+                sendTextMessage(
+                    conversation = conversation,
+                    senderProfile = botProfile,
+                    text = "👋 Welcome to Univers Verification Bot! Security login codes and Telegram bot OTP verification notices for your active sessions will appear here automatically, exactly like Telegram."
+                ).getOrThrow()
+            }
+        }
+    }
+
+    suspend fun sendAuthBotOtpMessage(targetUserId: String, otpCode: String): Result<Unit> = runCatching {
+        ensureSystemAuthBotProfile().getOrThrow()
+        val directId = buildDirectConversationId(targetUserId, SYSTEM_AUTH_BOT_ID)
+        val convRef = db.collection(CONVERSATIONS_COLLECTION).document(directId)
+        val convSnap = convRef.get().await()
+        val botProfile = UserProfile(
+            userId = SYSTEM_AUTH_BOT_ID,
+            displayName = "Univers Verification Bot",
+            handle = "univers_auth_bot",
+            bio = "Official login verification bot",
+            isOnline = true,
+            isDiscoverable = true,
+            photoUrl = "https://api.dicebear.com/7.x/bottts/svg?seed=UniversAuthBot"
+        )
+        if (!convSnap.exists()) {
+            val targetProfileSnap = db.collection(USER_PROFILES_COLLECTION).document(targetUserId).get().await()
+            val targetProfile = targetProfileSnap.toObject(UserProfile::class.java)
+            if (targetProfile != null) {
+                getOrCreateDirectConversation(targetProfile, botProfile).getOrThrow()
+            }
+        }
+        val conversation = db.collection(CONVERSATIONS_COLLECTION).document(directId).get().await().toObject(Conversation::class.java)
+        if (conversation != null) {
+            sendTextMessage(
+                conversation = conversation,
+                senderProfile = botProfile,
+                text = "🔐 Univers Chat Login Code: $otpCode\n\nSomeone requested to sign in to your account from another device. If this was you, enter this code to complete verification. Do not share this code with anyone."
+            ).getOrThrow()
+        }
+    }
+
     companion object {
+        const val SYSTEM_AUTH_BOT_ID = "system_auth_bot"
         const val USERS_COLLECTION = "users"
         const val USER_PROFILES_COLLECTION = "user_profiles"
         const val CONVERSATIONS_COLLECTION = "conversations"

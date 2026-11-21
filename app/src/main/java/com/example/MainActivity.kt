@@ -216,7 +216,7 @@ fun PulseChatApp(
         if (user == null) {
             LaunchedEffect(Unit) {
                 MessageNotificationCoordinator.stopObserving()
-                RealtimeMessagingService.syncServiceState(context, shouldRun = false)
+
             }
             AuthScreen(onAuthSuccess = {})
         } else {
@@ -470,11 +470,9 @@ private fun AuthenticatedShell(
             activeBanner = null
         }
     }
-
     val performSignOut: () -> Unit = {
         callViewModel.hangUp()
         MessageNotificationCoordinator.stopObserving()
-        RealtimeMessagingService.syncServiceState(context, shouldRun = false)
         TelegramOtpClient.clearSavedSessionJwt(context)
         signOut(
             scope = coroutineScope,
